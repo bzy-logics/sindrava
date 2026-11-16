@@ -1,16 +1,28 @@
 import { useState, type FormEvent } from "react";
 import type { RobotState } from "../../types/api";
-import { useEngine, useTelemetry } from "../../hooks/useEngine";
+import { useEngine, usePermissions, useTelemetry } from "../../hooks/useEngine";
 import { useCommand } from "../../hooks/useCommand";
 import { Empty, Led, StateBadge, fmt } from "../../components/common";
+import { ConfirmButton } from "../../components/ConfirmButton";
 import { allowed, mergeAxes, type MergedAxis } from "./axes";
+
+const NEEDS_OPERATOR = "Requires the operator role";
+
+const RESET_TEXT = (
+  <p>
+    Clear the latched fault? The robot returns to <strong>disabled</strong>; drives stay off and motion never resumes automatically. Make sure the cause
+    has been removed (the MCU refuses the reset while, for example, an endstop is still pressed or the safety interlock is open).
+  </p>
+);
 
 const STEPS = [0.1, 1, 10] as const;
 
 export function MotionControl() {
   const s = useEngine();
   const run = useCommand();
+  const perms = usePermissions();
   const { telemetry: t, online, state } = useTelemetry();
+  const cmdTitle = perms.command ? undefined : NEEDS_OPERATOR;
 
   const axes = mergeAxes(s.config?.axes ?? null, t?.axes ?? []);
 
@@ -25,9 +37,17 @@ export function MotionControl() {
               {t.fault.axis && <span className="muted"> (axis {t.fault.axis})</span>}
             </div>
           </div>
-          <button className="btn btn-warn" disabled={!online || !allowed.reset_fault(state)} onClick={() => void run("reset_fault", {})}>
+          <ConfirmButton
+            className="btn btn-warn"
+            disabled={!online || !allowed.reset_fault(state) || !perms.command}
+            title={cmdTitle}
+            confirmTitle="Reset fault"
+            confirmText={RESET_TEXT}
+            confirmLabel="Reset fault"
+            onConfirm={() => void run("reset_fault", {})}
+          >
             Reset Fault
-          </button>
+          </ConfirmButton>
         </div>
       )}
       {!t?.fault && online && allowed.reset_fault(state) && (
@@ -36,9 +56,17 @@ export function MotionControl() {
             <div className="fault-code">{state.replace("_", " ").toUpperCase()}</div>
             <div className="fault-msg">Reset to return to the disabled state. Motion never resumes automatically.</div>
           </div>
-          <button className="btn btn-warn" onClick={() => void run("reset_fault", {})}>
+          <ConfirmButton
+            className="btn btn-warn"
+            disabled={!perms.command}
+            title={cmdTitle}
+            confirmTitle="Reset emergency stop"
+            confirmText={RESET_TEXT}
+            confirmLabel="Reset"
+            onConfirm={() => void run("reset_fault", {})}
+          >
             Reset Fault
-          </button>
+          </ConfirmButton>
         </div>
       )}
 
@@ -49,13 +77,21 @@ export function MotionControl() {
           {t && <span className="muted small">seq {t.seq}</span>}
         </div>
         <div className="btn-row">
-          <button className="btn btn-ok" disabled={!online || !allowed.enable(state)} onClick={() => void run("enable", {})}>
+          <ConfirmButton
+            className="btn btn-ok"
+            disabled={!online || !allowed.enable(state) || !perms.command}
+            title={cmdTitle}
+            confirmTitle="Enable drives"
+            confirmText={<p>Energise all drives? Make sure the work area is clear and the hardware E-stop is within reach.</p>}
+            confirmLabel="Enable drives"
+            onConfirm={() => void run("enable", {})}
+          >
             Enable
-          </button>
-          <button className="btn" disabled={!online || !allowed.disable(state)} onClick={() => void run("disable", {})}>
+          </ConfirmButton>
+          <button className="btn" disabled={!online || !allowed.disable(state) || !perms.command} title={cmdTitle} onClick={() => void run("disable", {})}>
             Disable
           </button>
-          <button className="btn btn-warn" disabled={!online || !allowed.stop(state)} onClick={() => void run("stop", {})}>
+          <button className="btn btn-warn" disabled={!online || !allowed.stop(state) || !perms.stop} onClick={() => void run("stop", {})}>
             Stop
           </button>
         </div>
@@ -64,11 +100,19 @@ export function MotionControl() {
       {axes.length === 0 ? (
         <Empty>No axes reported yet. Waiting for configuration / telemetry…</Empty>
       ) : (
+        <>
+          {axes.length > 1 && (
+            <div className="note small">
+              Each command moves one axis. Coordinated multi-axis moves are not provided by the engine yet, so axes are not synchronised with each
+              other.
+            </div>
+          )}
         <div className="axis-grid">
           {axes.map(({ cfg, tel, id }) => (
-            <AxisCard key={id} id={id} cfg={cfg} tel={tel} state={state} online={online} />
+            <AxisCard key={id} id={id} cfg={cfg} tel={tel} state={state} online={online && perms.command} />
           ))}
         </div>
+        </>
       )}
     </div>
   );
@@ -164,9 +208,21 @@ function AxisCard({ id, cfg, tel, state, online }: MergedAxis & { state: RobotSt
       </div>
 
       <div className="btn-row">
-        <button className="btn" disabled={!online || !allowed.home(state)} onClick={() => void run("home", { axis: id })}>
+        <ConfirmButton
+          className="btn"
+          disabled={!online || !allowed.home(state)}
+          confirmTitle={`Home ${cfg?.name ?? id}`}
+          confirmText={
+            <p>
+              Axis <span className="mono">{id}</span> will move{cfg ? "" : " (direction from the configuration)"} until its endstop triggers. Make sure the
+              path is clear.
+            </p>
+          }
+          confirmLabel="Start homing"
+          onConfirm={() => void run("home", { axis: id })}
+        >
           Home
-        </button>
+        </ConfirmButton>
         <form className="move" onSubmit={submitMove}>
           <input
             type="number"

@@ -39,7 +39,18 @@ export function ConnectionBanner() {
     return (
       <div className="banner banner-warn" role="alert">
         <strong>Engine disconnected.</strong>
-        <span>The API is up but the motion engine is not connected. Displayed values are stale.</span>
+        <span>
+          The API is up but the motion engine is not connected. Displayed values are stale.
+          {s.info?.engine_error && <> Reason: {s.info.engine_error}</>}
+        </span>
+      </div>
+    );
+  }
+  if (s.stale) {
+    return (
+      <div className="banner banner-warn" role="alert">
+        <strong>Telemetry stale.</strong>
+        <span>No telemetry received for over a second. Values on screen may be out of date; motion controls are disabled.</span>
       </div>
     );
   }

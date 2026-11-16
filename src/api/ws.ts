@@ -1,16 +1,44 @@
 // WebSocket client for GET /api/ws: parses server messages and reconnects
 // with exponential backoff + jitter.
 
-import type { WsMessage } from "../types/api";
+import type { WsMessage, WsTicket } from "../types/api";
+import { ApiError } from "./client";
 import { Backoff } from "./backoff";
 
 export type WsLink = "connecting" | "open" | "closed";
 
-/** Build the WS URL for a page location; the token goes in `access_token`. */
-export function buildWsUrl(loc: { protocol: string; host: string }, token: string, base = "/api"): string {
+/** How the WebSocket authenticates: a single-use ticket (preferred) or the legacy query token. */
+export type WsCredential = { ticket: string } | { token: string } | null;
+
+/** Build the WS URL for a page location and credential. */
+export function wsUrl(loc: { protocol: string; host: string }, cred: WsCredential, base = "/api"): string {
   const proto = loc.protocol === "https:" ? "wss:" : "ws:";
-  const q = token ? `?access_token=${encodeURIComponent(token)}` : "";
+  let q = "";
+  if (cred && "ticket" in cred) q = `?ticket=${encodeURIComponent(cred.ticket)}`;
+  else if (cred && cred.token) q = `?access_token=${encodeURIComponent(cred.token)}`;
   return `${proto}//${loc.host}${base}/ws${q}`;
+}
+
+/** Legacy form: the token goes in `access_token` (servers < 0.3 only). */
+export function buildWsUrl(loc: { protocol: string; host: string }, token: string, base = "/api"): string {
+  return wsUrl(loc, token ? { token } : null, base);
+}
+
+/**
+ * Pick the WebSocket credential for a token. With a token, a fresh
+ * single-use ticket is requested so the long-lived token never appears in a
+ * URL. Only servers without the ticket endpoint (404/405, ratavyr < 0.3) get
+ * the legacy `?access_token=`. Other failures (401, network) are thrown and
+ * the caller retries later.
+ */
+export async function resolveWsCredential(token: string, getTicket: () => Promise<WsTicket>): Promise<WsCredential> {
+  if (!token) return null;
+  try {
+    return { ticket: (await getTicket()).ticket };
+  } catch (e) {
+    if (e instanceof ApiError && (e.status === 404 || e.status === 405)) return { token };
+    throw e;
+  }
 }
 
 /** Parse one text frame; returns null for anything that is not a known message. */
@@ -43,8 +71,11 @@ export class WsClient {
   private active = false;
   private readonly backoff = new Backoff(500, 10_000);
 
+  /** Incremented on every connect/stop so stale async URL lookups are dropped. */
+  private gen = 0;
+
   constructor(
-    private readonly url: () => string,
+    private readonly url: () => string | Promise<string>,
     private readonly h: WsHandlers,
   ) {}
 
@@ -56,6 +87,7 @@ export class WsClient {
 
   stop() {
     this.active = false;
+    this.gen++;
     this.clearTimer();
     const ws = this.ws;
     this.ws = null;
@@ -80,9 +112,32 @@ export class WsClient {
   private connect() {
     this.clearTimer();
     this.h.onLink("connecting", null);
+    const gen = ++this.gen;
+    let url: string | Promise<string>;
+    try {
+      url = this.url();
+    } catch {
+      this.scheduleReconnect();
+      return;
+    }
+    if (typeof url === "string") {
+      this.open(url);
+      return;
+    }
+    url.then(
+      (u) => {
+        if (gen === this.gen && this.active) this.open(u);
+      },
+      () => {
+        if (gen === this.gen) this.scheduleReconnect();
+      },
+    );
+  }
+
+  private open(url: string) {
     let ws: WebSocket;
     try {
-      ws = new WebSocket(this.url());
+      ws = new WebSocket(url);
     } catch {
       this.scheduleReconnect();
       return;

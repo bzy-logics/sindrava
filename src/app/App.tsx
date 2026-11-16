@@ -1,8 +1,8 @@
 import { Suspense, lazy, useEffect, useState } from "react";
 import { live } from "../hooks/liveStore";
 import { useEngine, useTelemetry } from "../hooks/useEngine";
-import { useCommand } from "../hooks/useCommand";
 import { StateBadge } from "../components/common";
+import { EstopButton } from "../components/Estop";
 import { Dashboard } from "../features/dashboard/Dashboard";
 import { MotionControl } from "../features/motion/MotionControl";
 import { RobotConfigView } from "../features/robots/RobotConfig";
@@ -69,10 +69,11 @@ export function App() {
   );
 }
 
+const CONN_LABEL = { connected: "live", reconnecting: "reconnecting", disconnected: "disconnected", stale: "stale", faulted: "faulted" } as const;
+
 function Header() {
   const s = useEngine();
-  const { state } = useTelemetry();
-  const run = useCommand();
+  const { state, status } = useTelemetry();
   return (
     <header className="header">
       <div className="brand">
@@ -84,14 +85,13 @@ function Header() {
       </div>
       <div className="header-status">
         <StateBadge state={state} />
-        <span className={`link link-${s.link}`} title="Dashboard ↔ API WebSocket">
-          {s.link === "open" ? "live" : s.link}
+        <span className={`conn conn-${status}`} title="Connection: browser ↔ API ↔ engine, and telemetry freshness" aria-live="polite">
+          {CONN_LABEL[status]}
         </span>
+        {s.session?.auth_required && <span className="role">role: {s.session.role}</span>}
       </div>
       {/* Always rendered and never disabled; the server validates and relays it. */}
-      <button className="estop" onClick={() => void run("estop", {})} title="Emergency stop (software)">
-        E-STOP
-      </button>
+      <EstopButton />
     </header>
   );
 }

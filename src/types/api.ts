@@ -26,6 +26,34 @@ export interface ServerInfo {
   server_version: string;
   auth_required: boolean;
   engine: EngineInfo | null;
+  /** Why the engine is not connected (e.g. incompatible api_version); null while connected. Absent on servers < 0.3. */
+  engine_error?: string | null;
+}
+
+// ---------------------------------------------------------------- session
+
+export type Role = "viewer" | "operator" | "admin";
+
+/** What the caller may do. The server enforces this; the UI only reflects it. */
+export interface Permissions {
+  view: boolean;
+  stop: boolean;
+  command: boolean;
+  firmware_build: boolean;
+  firmware_flash: boolean;
+}
+
+/** GET /api/session (servers >= 0.3). */
+export interface Session {
+  auth_required: boolean;
+  role: Open<Role>;
+  permissions: Permissions;
+}
+
+/** POST /api/ws-tickets (servers >= 0.3). */
+export interface WsTicket {
+  ticket: string;
+  expires_in_ms: number;
 }
 
 // ---------------------------------------------------------------- telemetry
@@ -239,6 +267,10 @@ export type ErrorCode =
   | "validation_failed"
   | "not_homed"
   | "unauthorized"
+  | "forbidden"
+  | "method_not_allowed"
+  | "unsupported_media_type"
+  | "rate_limited"
   | "not_found"
   | "unknown_axis"
   | "unknown_command"

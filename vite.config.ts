@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
@@ -9,6 +10,12 @@ export default defineConfig({
   plugins: [react()],
   // three.js alone is ~500 kB minified; it is split into the lazily-loaded viewer chunk.
   build: { chunkSizeWarningLimit: 600 },
+  test: {
+    // Node >= 25 ships a global localStorage (undefined without a backing
+    // file) that shadows jsdom's; turn it off so browser storage behaves as in
+    // a browser. Accepted by Node 22+.
+    poolOptions: { forks: { execArgv: ["--no-experimental-webstorage"] } },
+  },
   server: {
     port: 5173,
     proxy: {

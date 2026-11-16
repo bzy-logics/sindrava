@@ -12,7 +12,9 @@ import type {
   Plugin,
   RobotConfig,
   ServerInfo,
+  Session,
   Telemetry,
+  WsTicket,
 } from "../types/api";
 import { auth } from "./auth";
 
@@ -100,6 +102,10 @@ export function createClient(opts: ClientOptions = {}) {
   return {
     health: () => get<Health>("/health"),
     info: () => get<ServerInfo>("/info"),
+    /** Role and permissions of the current token (servers >= 0.3). */
+    session: () => get<Session>("/session"),
+    /** Single-use, short-lived WebSocket ticket (servers >= 0.3). */
+    wsTicket: () => post<WsTicket>("/ws-tickets", {}),
     status: () => get<Telemetry>("/status"),
     config: () => get<RobotConfig>("/config"),
     plugins: () => get<Plugin[]>("/plugins"),

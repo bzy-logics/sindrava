@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { api } from "../../api";
 import type { FirmwareJob } from "../../types/api";
-import { useEngine, useTelemetry } from "../../hooks/useEngine";
+import { useEngine, usePermissions, useTelemetry } from "../../hooks/useEngine";
 import { usePolling } from "../../hooks/usePolling";
 import { useErrorToast } from "../../hooks/useCommand";
 import { useToast } from "../../components/Toasts";
@@ -23,6 +23,7 @@ export function Firmware() {
   }, anyActive ? ACTIVE_POLL_MS : null);
   const toast = useToast();
   const fail = useErrorToast();
+  const perms = usePermissions();
   const [busy, setBusy] = useState<string | null>(null);
   const [flashJob, setFlashJob] = useState<FirmwareJob | null>(null);
 
@@ -83,7 +84,7 @@ export function Firmware() {
                       <td className="mono" data-label="Board">{m.board}</td>
                       <td data-label="Transport">{m.transport}</td>
                       <td className="actions" data-label="">
-                        <button className="btn btn-primary btn-small" disabled={!el.ok || busy !== null} title={el.reason} onClick={() => void build(m.name)}>
+                        <button className="btn btn-primary btn-small" disabled={!el.ok || busy !== null || !perms.firmware_build} title={perms.firmware_build ? el.reason : "Requires the operator role"} onClick={() => void build(m.name)}>
                           {busy === m.name ? "Queuing…" : "Build firmware"}
                         </button>
                         {el.reason && <div className="muted small">{el.reason}</div>}
@@ -112,7 +113,7 @@ export function Firmware() {
         ) : (
           <div className="jobs">
             {jobs.data.map((j) => (
-              <JobCard key={j.id} job={j} flash={flashEligibility(j, targets.data, jobs.data)} onFlash={() => setFlashJob(j)} />
+              <JobCard key={j.id} job={j} flash={perms.firmware_flash ? flashEligibility(j, targets.data, jobs.data) : { ok: false, reason: "Requires the admin role" }} onFlash={() => setFlashJob(j)} />
             ))}
           </div>
         )}

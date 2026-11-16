@@ -1,0 +1,66 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+  e2e:
+    # sindrava's clients against ratavyr + the real engine with its virtual MCU.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: bzyfuzy/motioncore
+          path: .motioncore
+      - uses: actions/checkout@v4
+        with:
+          repository: bzyfuzy/ratavyr
+          path: .ratavyr
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: .ratavyr/go.mod
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: .motioncore
+      - run: npm ci && npm run build
+      - run: cargo build -p motioncore-cli
+        working-directory: .motioncore
+      - run: go build -o ratavyr ./cmd/server
+        working-directory: .ratavyr
+      - name: start engine and API
+        run: |
+          .motioncore/target/debug/motioncore start --config .motioncore/robot-profiles/single-axis-virtual.toml --listen tcp://127.0.0.1:7600 &
+          MOTIONCORE_ENGINE_ADDR=127.0.0.1:7600 MOTIONCORE_OPERATOR_TOKEN=ci-operator-token-0123456789 \
+          MOTIONCORE_VIEWER_TOKEN=ci-viewer-token-0123456789 MOTIONCORE_API_TOKEN=ci-admin-token-0123456789 \
+          MOTIONCORE_WEB_DIR=dist .ratavyr/ratavyr &
+          for i in $(seq 1 120); do curl -sf http://127.0.0.1:8080/api/health | grep -q '"connected":true' && exit 0; sleep 0.5; done
+          echo "stack did not come up"; exit 1
+      - run: npx vitest run src/e2e
+        env:
+          MOTIONCORE_E2E_URL: http://127.0.0.1:8080
+          MOTIONCORE_E2E_OPERATOR_TOKEN: ci-operator-token-0123456789
+          MOTIONCORE_E2E_VIEWER_TOKEN: ci-viewer-token-0123456789

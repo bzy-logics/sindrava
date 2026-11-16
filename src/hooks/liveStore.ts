@@ -4,8 +4,9 @@
 // The engine is the state authority; nothing here synthesises robot state
 // beyond marking telemetry "disconnected" when the engine link is down.
 
-import { api, auth, buildWsUrl, WsClient, type WsLink } from "../api";
-import type { LogEntry, Plugin, RobotConfig, ServerInfo, Telemetry, WsMessage } from "../types/api";
+import { api, ApiError, auth, resolveWsCredential, WsClient, wsUrl, type WsLink } from "../api";
+import type { LogEntry, Plugin, RobotConfig, ServerInfo, Session, Telemetry, WsMessage } from "../types/api";
+import { isStale } from "./status";
 
 export interface LiveState {
   /** WebSocket link to the API server. */
@@ -17,7 +18,13 @@ export interface LiveState {
   /** Engine connectivity as reported by the API. */
   engineConnected: boolean;
   info: ServerInfo | null;
+  /** Role/permissions; null if unknown (not fetched yet, or a server without /api/session). */
+  session: Session | null;
   telemetry: Telemetry | null;
+  /** Client time (performance.now) of the last telemetry message. */
+  lastTelemetryAt: number | null;
+  /** Telemetry stopped arriving although the link and engine are up. */
+  stale: boolean;
   config: RobotConfig | null;
   plugins: Plugin[] | null;
   logs: LogEntry[];
@@ -32,6 +39,7 @@ export interface Sample {
 const MAX_LOGS = 500;
 export const HISTORY_WINDOW_MS = 30_000;
 const HEALTH_INTERVAL_MS = 5000;
+const STALE_CHECK_MS = 250;
 
 class LiveStore {
   private state: LiveState = {
@@ -40,17 +48,22 @@ class LiveStore {
     apiReachable: true,
     engineConnected: false,
     info: null,
+    session: null,
     telemetry: null,
+    lastTelemetryAt: null,
+    stale: false,
     config: null,
     plugins: null,
     logs: [],
   };
   private listeners = new Set<() => void>();
   private healthTimer: number | null = null;
+  private staleTimer: number | null = null;
   private unsubAuth: (() => void) | null = null;
   private lastToken = auth.token();
   private started = 0;
-  private readonly ws = new WsClient(() => buildWsUrl(window.location, auth.token()), {
+  // Each (re)connect fetches a fresh single-use ticket; see resolveWsCredential.
+  private readonly ws = new WsClient(async () => wsUrl(window.location, await resolveWsCredential(auth.token(), api.wsTicket)), {
     onMessage: (m) => this.handle(m),
     onLink: (link, ms) => {
       const patch: Partial<LiveState> = { link, reconnectIn: ms === null ? null : Math.max(1, Math.round(ms / 1000)) };
@@ -58,6 +71,7 @@ class LiveStore {
         patch.apiReachable = true;
         this.set(patch);
         this.refreshStatic();
+        void this.refreshSession();
         void this.checkHealth();
         return;
       }
@@ -90,15 +104,19 @@ class LiveStore {
     if (this.started++ > 0) return;
     this.ws.start();
     void this.refreshInfo();
+    void this.refreshSession();
     this.refreshStatic();
     this.healthTimer = window.setInterval(() => void this.checkHealth(), HEALTH_INTERVAL_MS);
+    this.staleTimer = window.setInterval(() => this.checkStale(), STALE_CHECK_MS);
     // A new token: reconnect the socket (token is in its URL) and re-fetch.
     this.unsubAuth = auth.subscribe(() => {
       const t = auth.token();
       if (t === this.lastToken) return;
       this.lastToken = t;
+      this.set({ session: null });
       this.ws.reconnectNow();
       void this.refreshInfo();
+      void this.refreshSession();
       this.refreshStatic();
     });
   }
@@ -106,7 +124,9 @@ class LiveStore {
   stop() {
     if (--this.started > 0) return;
     if (this.healthTimer !== null) window.clearInterval(this.healthTimer);
+    if (this.staleTimer !== null) window.clearInterval(this.staleTimer);
     this.healthTimer = null;
+    this.staleTimer = null;
     this.unsubAuth?.();
     this.unsubAuth = null;
     this.ws.stop();
@@ -118,6 +138,21 @@ class LiveStore {
     } catch {
       /* older server or unreachable; keep previous */
     }
+  }
+
+  async refreshSession() {
+    try {
+      this.set({ session: await api.session() });
+    } catch (e) {
+      // 404: server without roles (< 0.3) -> permissions unknown, the server enforces.
+      if (e instanceof ApiError && (e.status === 404 || e.status === 401)) this.set({ session: null });
+    }
+  }
+
+  private checkStale() {
+    const s = this.state;
+    const stale = s.link === "open" && s.engineConnected && isStale(s.lastTelemetryAt, performance.now());
+    if (stale !== s.stale) this.set({ stale });
   }
 
   /** Re-fetch config and plugin list (cheap; done on (re)connect). */
@@ -172,7 +207,7 @@ class LiveStore {
     switch (msg.type) {
       case "telemetry": {
         this.record(msg.data);
-        const patch: Partial<LiveState> = { telemetry: msg.data };
+        const patch: Partial<LiveState> = { telemetry: msg.data, lastTelemetryAt: performance.now(), stale: false };
         if (!this.state.engineConnected) {
           patch.engineConnected = true;
           this.refreshStatic();

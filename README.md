@@ -20,10 +20,15 @@ HTTP client (scripts, HMI panels, a different frontend) can use the same API.
 The contract is **`ratavyr/docs/rest-api.md` (v1)**. `src/types/api.ts` mirrors it
 type-for-type and `src/api/` implements it:
 
-- `src/api/client.ts` — typed REST client (`/health`, `/info`, `/status`, `/config`, `/plugins`,
-  `/commands/{name}`, `/firmware/*`), error envelope parsing (`{"error":{"code","message"}}` → `ApiError`)
-- `src/api/ws.ts` — `/api/ws` client (engine/telemetry/log messages) with exponential backoff + jitter
+- `src/api/client.ts` — typed REST client (`/health`, `/info`, `/session`, `/status`, `/config`,
+  `/plugins`, `/commands/{name}`, `/ws-tickets`, `/firmware/*`), error envelope parsing
+  (`{"error":{"code","message"}}` → `ApiError`)
+- `src/api/ws.ts` — `/api/ws` client (engine/telemetry/log messages) with exponential backoff + jitter;
+  authenticates with a fresh single-use ticket per connection
 - `src/api/auth.ts` — API token storage
+
+Older servers (ratavyr < 0.3, without `/api/session` and `/api/ws-tickets`) still work: permissions
+are then unknown (the server still enforces them) and the WebSocket falls back to `?access_token=`.
 
 When the contract changes, update `src/types/api.ts` first; `npm run typecheck` then shows every
 place that needs attention.
@@ -34,7 +39,7 @@ place that needs attention.
 npm install
 npm run dev        # http://localhost:5173, proxies /api (REST + WebSocket) to http://127.0.0.1:8080
 npm run typecheck  # tsc only
-npm test           # vitest unit tests (API client, backoff, mapping helpers)
+npm test           # vitest: unit tests, jsdom UI tests (E-stop, confirmations, permissions)
 npm run build      # tsc + production build into dist/
 npm run preview    # serve dist/ locally
 ```
@@ -45,36 +50,81 @@ npm run preview    # serve dist/ locally
 with SPA fallback), so UI and API share one origin. Any static host works as long as `/api` (including the
 WebSocket upgrade on `/api/ws`) is reverse-proxied to the server on the same origin.
 
-## Authentication
+## Authentication and roles
 
-If the server is started with `MOTIONCORE_API_TOKEN`, every endpoint except `GET /api/health` and
-`GET /api/info` requires a token. `/api/info` reports `auth_required`.
+If the server has API tokens configured, every endpoint except `GET /api/health` and `GET /api/info`
+requires one. `/api/info` reports `auth_required`; `/api/session` reports the token's role
+(`viewer`, `operator`, `admin`) and permissions.
 
-- Enter the token under **Settings** (or in the banner that appears). It is stored in this browser's
-  `localStorage` (`motioncore.api_token`).
-- REST requests send `Authorization: Bearer <token>`; the WebSocket uses `/api/ws?access_token=<token>`
-  (browsers cannot set WS headers).
-- Any `401` response shows an auth banner prompting for the token. Saving a token reconnects the stream
-  and re-fetches data.
+- Enter the token under **Settings** (or in the banner that appears). By default it is kept for this
+  tab only (`sessionStorage`); tick **remember on this device** to keep it in `localStorage`.
+- REST requests send `Authorization: Bearer <token>`. The WebSocket gets a single-use, 30-second ticket
+  from `POST /api/ws-tickets` before every (re)connect, so the token never appears in a URL.
+- Controls the role may not use are disabled with an explanation (a viewer can watch and stop, an
+  operator can command motion and build firmware, only an admin can flash). The server enforces the
+  same rules.
+- Any `401` response shows an auth banner prompting for the token; `403` shows as a failed action.
 
-Without a token the server only binds to loopback by default.
+## Safety behaviour
+
+- **E-STOP** is in the header on every screen and is never disabled. After a click it shows
+  "Accepted, waiting for engine confirmation…" and only reports **confirmed** once engine telemetry
+  says `emergency_stopped`. If the request fails, or no confirmation arrives within 2 s, it tells the
+  operator to use the hardware emergency stop. The button is labelled as a software stop: it is not a
+  substitute for an independent hardware E-stop circuit.
+- **Confirmations** before Enable (energises drives), Home (moves the axis) and Reset fault. Cancel has
+  the focus, so Enter/Escape never confirm by accident. Flashing keeps its "drives are powered off"
+  check box.
+- **Connection status** in the header: `live`, `reconnecting` (API WebSocket down), `disconnected` (API or
+  engine unreachable, with the engine's reason, e.g. an incompatible API version), `stale` (no telemetry
+  for 1.5 s) and `faulted`. Motion controls are disabled unless the data is live and fresh.
+- The UI never synthesises robot state: everything shown comes from engine telemetry.
 
 ## Screens
 
 | Tab | Contents |
 |---|---|
 | Overview | Robot name/profile, state, active fault + derived alarms, MCU health summary, axis summary |
-| Motion | Enable/Disable/Stop, Reset Fault, per-axis jog/home/absolute move (homed axes only), soft-limit bars |
+| Motion | Enable/Disable/Stop, Reset Fault, per-axis jog/home/absolute move (homed axes only), soft-limit bars with commanded vs. measured position. Axes are commanded one at a time (the engine has no coordinated multi-axis moves yet) |
 | 3D Viewer | Measured pose solid, planned (commanded) pose as ghost; lazy-loaded (three.js is its own chunk) |
 | Robot | Read-only RobotConfig: MCUs, axes, limits, actuator, pins |
 | Composer | Read-only device graph Robot → MCU → channel → axis → driver (actuator, step/dir/enable) + endstop. Editing comes later |
 | Firmware | Targets, "Build firmware" per configured MCU (virtual boards disabled), jobs with state/log/artifact (build hash, SHA-256), "Flash" for succeeded builds behind an explicit "drives are powered off" confirmation |
 | Plugins | Plugin table with description, permissions, state and error |
 | Diagnostics | MCU link details (board, build hash, …), queue bar, 30 s position chart, filtered log |
-| Settings | API token, server/engine versions |
+| Settings | API token (tab-only or remembered), role, server/engine versions |
 
 The active tab is kept in the URL hash (`#firmware`, …). The red **E-STOP** button is in the header on every
 screen and is never disabled.
+
+## Tests
+
+```sh
+npm run typecheck
+npm test
+npm run build
+```
+
+End-to-end, against a running stack (ratavyr + engine with the virtual MCU,
+`robot-profiles/single-axis-virtual.toml`), using this app's own REST and WebSocket clients:
+
+```sh
+MOTIONCORE_E2E_URL=http://127.0.0.1:8080 MOTIONCORE_E2E_OPERATOR_TOKEN=... MOTIONCORE_E2E_VIEWER_TOKEN=... npx vitest run src/e2e
+```
+
+CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs typecheck, tests and build, and the
+end-to-end test against freshly built motioncore and ratavyr.
+
+## Known limitations and engine dependencies
+
+- **Robot Composer is read-only.** The engine has no configuration editing or validation API; robot
+  profiles are TOML files loaded when the engine starts.
+- **3D viewer** shows each axis as its own joint (revolute arm or prismatic rail). An articulated
+  kinematic chain needs link geometry the engine does not expose yet.
+- **No coordinated multi-axis motion** and no planned-trajectory preview: the engine moves one axis per
+  command. Commanded vs. measured position is shown per axis.
+- **Firmware verify** (running build vs. artifact) is CLI-only in the engine.
+- One MCU per robot in telemetry (engine-api v1).
 
 ## Layout
 
