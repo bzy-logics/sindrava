@@ -29,11 +29,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/checkout@v4
         with:
-          repository: bzyfuzy/motioncore
+          repository: bzy-logics/motioncore
           path: .motioncore
       - uses: actions/checkout@v4
         with:
-          repository: bzyfuzy/ratavyr
+          repository: bzy-logics/ratavyr
           path: .ratavyr
       - uses: actions/setup-node@v4
         with:
