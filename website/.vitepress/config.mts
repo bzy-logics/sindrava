@@ -78,7 +78,7 @@ export default defineConfig({
     outline: { level: [2, 3] },
 
     footer: {
-      message: 'Part of MotionCore. The on-screen E-STOP is a software stop — it never replaces a hardware E-stop circuit.',
+      message: 'Part of MotionCore. Licensed under GPL-3.0. The on-screen E-STOP is a software stop — it never replaces a hardware E-stop circuit.',
     },
   },
 })
