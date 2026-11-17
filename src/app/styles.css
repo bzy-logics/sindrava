@@ -688,7 +688,7 @@ input:disabled {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  max-width: calc(100% - 20px);
+  max-width: min(300px, calc(100% - 20px));
   pointer-events: none;
 }
 .legend-row {
@@ -712,6 +712,63 @@ input:disabled {
 .swatch-limit {
   background: #ff6b5a;
   height: 3px;
+}
+
+.swatch-preview {
+  background: rgba(255, 181, 71, 0.45);
+  border: 1px solid #ffb547;
+}
+.legend-axis {
+  pointer-events: auto;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  color: inherit;
+  padding: 1px 4px;
+  margin: 0 -4px;
+  text-align: left;
+  cursor: pointer;
+}
+.legend-axis:hover,
+.legend-axis:focus-visible {
+  border-color: var(--border);
+}
+.legend-axis.active {
+  border-color: #ffd400;
+  color: #ffd400;
+}
+
+.joint-panel {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: min(320px, calc(100% - 20px));
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
+}
+.joint-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.joint-target {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.joint-target input[type="range"] {
+  width: 100%;
+  accent-color: #ffb547;
+}
+.joint-number {
+  flex: 1;
+  min-width: 0;
+}
+.preview-text {
+  color: #ffb547;
 }
 
 /* ---------------------------------------------------------------- diagnostics */
@@ -1283,4 +1340,32 @@ td.actions {
 
 .viewer-mode {
   max-width: 260px;
+}
+
+.home-all {
+  flex-basis: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 13px;
+}
+.home-all-ok {
+  border-color: color-mix(in srgb, var(--ok) 50%, transparent);
+  color: var(--ok);
+}
+.home-all-err {
+  border-color: color-mix(in srgb, var(--err) 60%, transparent);
+  color: var(--err);
+}
+
+.home-plan {
+  margin: 0;
+  padding-left: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }

@@ -113,6 +113,8 @@ export interface AxisTelemetry {
   measured_position: number;
   velocity: number;
   endstop: boolean;
+  /** True while this axis is homing (engine-api >= 1.2). */
+  homing?: boolean;
 }
 
 export interface Telemetry {
@@ -171,6 +173,8 @@ export interface AxisGeometry {
   axis: [number, number, number];
   /** End of this joint's link (e.g. tool flange) in its joint frame, mm; null if not configured. */
   tip_mm: [number, number, number] | null;
+  /** Link radius of the collision model, mm (engine-api >= 1.2). */
+  radius_mm?: number | null;
 }
 
 export interface RobotConfig {
@@ -178,6 +182,18 @@ export interface RobotConfig {
   profile: string;
   mcus: McuConfig[];
   axes: AxisConfig[];
+  /** How the home_all command proceeds; null/absent with engine-api < 1.2. */
+  home_all?: HomeAllPlan | null;
+  /** True when the engine refuses moves that would collide (engine-api >= 1.2). */
+  collision_checking?: boolean;
+}
+
+/** Axes of a group home at the same time; groups run in order. */
+export interface HomeAllPlan {
+  groups: string[][];
+  /** Pose the robot must be in before home all (from the profile). */
+  start_pose: string | null;
+  from_profile: boolean;
 }
 
 // ---------------------------------------------------------------- plugins
@@ -274,6 +290,7 @@ export interface CommandParams {
   jog: { axis: string; delta: number; velocity?: number };
   move_to: { axis: string; position: number; velocity?: number };
   home: { axis: string };
+  home_all: NoParams;
 }
 
 export type CommandName = keyof CommandParams;
@@ -293,6 +310,7 @@ export type ErrorCode =
   | "unknown_axis"
   | "unknown_command"
   | "invalid_state"
+  | "collision"
   | "mcu_error"
   | "engine_unavailable"
   | "engine_timeout"

@@ -7,6 +7,7 @@ import type { AxisConfig, RobotState, Session, Telemetry } from "../types/api";
 import { EstopButton } from "./Estop";
 import { ESTOP_CONFIRM_MS } from "../hooks/status";
 import { MotionControl } from "../features/motion/MotionControl";
+import { homeAll } from "../hooks/useHomeAll";
 
 beforeAll(() => {
   // jsdom has no modal dialog support.
@@ -170,6 +171,60 @@ describe("MotionControl safety", () => {
     expect(btn("Home").disabled).toBe(true);
     expect(btn("+ 1").disabled).toBe(true);
     expect(btn("Stop").disabled).toBe(false);
+    expect(btn("Home all").disabled).toBe(true);
+  });
+
+  it("Home all uses the engine's plan when there is one", async () => {
+    online("ready");
+    const cfg = (live.getState().config as NonNullable<LiveState["config"]>);
+    setLive({
+      config: { ...cfg, home_all: { groups: [["j1"]], start_pose: "Arm straight up.", from_profile: true }, collision_checking: true },
+    });
+    const cmd = vi.spyOn(api, "command").mockResolvedValue({});
+    render(<MotionControl />);
+    fireEvent.click(screen.getByRole("button", { name: "Home all" }));
+    const dialog = screen.getByRole("dialog").textContent ?? "";
+    expect(dialog).toMatch(/Start pose: Arm straight up\./);
+    expect(dialog).toMatch(/no software can check these paths/);
+    expect(dialog).toMatch(/moves that would make the robot collide with itself are refused/);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Home 1 axis" }));
+    });
+    expect(cmd).toHaveBeenCalledWith("home_all", {});
+    expect(cmd).not.toHaveBeenCalledWith("home", expect.anything());
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+      await new Promise((r) => setTimeout(r, 300));
+    });
+    act(() => homeAll.dismiss());
+    setLive({ config: cfg });
+  });
+
+  it("Home all confirms the order first, then shows progress with Cancel", async () => {
+    online("ready");
+    const cmd = vi.spyOn(api, "command").mockResolvedValue({});
+    render(<MotionControl />);
+    fireEvent.click(screen.getByRole("button", { name: "Home all" }));
+    expect(screen.getByRole("dialog").textContent).toMatch(/in this order: j1/);
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(cmd).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Home all" }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Home 1 axis" }));
+    });
+    expect(cmd).toHaveBeenCalledWith("home", { axis: "j1" });
+    expect(screen.getByText(/\(1\/1\)/).textContent).toMatch(/Homing j1/);
+    expect((screen.getByRole("button", { name: "Home all" }) as HTMLButtonElement).disabled).toBe(true);
+
+    // Cancel sends a stop and ends the sequence.
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+      await new Promise((r) => setTimeout(r, 300));
+    });
+    expect(cmd).toHaveBeenLastCalledWith("stop", {});
+    expect(screen.getByText(/Home all cancelled at/)).toBeTruthy();
+    act(() => homeAll.dismiss());
   });
 
   it("disables commands while telemetry is stale", () => {

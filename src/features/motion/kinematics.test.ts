@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import * as THREE from "three";
 import type { AxisConfig, AxisGeometry } from "../../types/api";
-import { forwardKinematics, kinematicTree, mul, position, rpy, translate, type Vec3 } from "./kinematics";
-import { applyPose, buildChain } from "./scene";
+import { COLLISION_MARGIN_MM, checkSweep, clearance, forwardKinematics, hasCollisionModel, kinematicTree, mul, position, rpy, segmentDistance, translate, type Vec3 } from "./kinematics";
+import { applyPose, axisOf, buildChain, dragDelta } from "./scene";
 
 function axis(id: string, kind: AxisConfig["kind"], geometry: Partial<AxisGeometry> | null, min = -180, max = 180): AxisConfig {
   return {
@@ -106,5 +106,122 @@ describe("three.js chain", () => {
 
   it("refuses incomplete geometry so the viewer can fall back", () => {
     expect(buildChain([axis("a", "revolute", null)], { body: new THREE.MeshBasicMaterial() })).toBeNull();
+  });
+});
+
+describe("Dummy arm profile (motioncore robot-profiles/dummy-arm-virtual.toml)", () => {
+  // Geometry converted from the Dummy robot's DH table; expected flange
+  // positions computed with that robot's own forward kinematics.
+  const dummy = (): AxisConfig[] => [
+    axis("j1", "revolute", {}),
+    axis("j2", "revolute", { parent: "j1", origin_mm: [35, 0, 109], rotation_deg: [0, -90, -90] }),
+    axis("j3", "revolute", { parent: "j2", origin_mm: [146, 0, 0], rotation_deg: [0, 0, 90] }),
+    axis("j4", "revolute", { parent: "j3", origin_mm: [-52, -115, 0], rotation_deg: [90, 0, 0] }),
+    axis("j5", "revolute", { parent: "j4", rotation_deg: [-90, 0, 0] }),
+    axis("j6", "revolute", { parent: "j5", rotation_deg: [90, 0, 0], tip_mm: [0, 0, 72] }),
+  ];
+  const flange = (q: Record<string, number>) => tipOf(forwardKinematics(dummy(), q), "j6", [0, 0, 72]);
+
+  it("stands straight up at zero", () => {
+    expect(near(flange({}), [-17, 0, 442], 1e-6)).toBe(true);
+  });
+  it("folds into its rest pose", () => {
+    expect(near(flange({ j1: 0, j2: -73, j3: 180, j4: 0, j5: 0, j6: 0 }), [89.41, 0, 146.74], 0.01)).toBe(true);
+  });
+});
+
+describe("picking and dragging", () => {
+  const chain = () => buildChain(railArm(), { body: new THREE.MeshBasicMaterial(), fixed: new THREE.MeshBasicMaterial() })!;
+
+  it("maps every part to the joint that moves it", () => {
+    const c = chain();
+    const ids = new Map<string, Set<string>>();
+    c.root.traverse((o) => {
+      if (!(o instanceof THREE.Mesh)) return;
+      const id = axisOf(o)!;
+      expect(id).not.toBeNull();
+      ids.set(id, (ids.get(id) ?? new Set()).add(o.type));
+    });
+    expect([...ids.keys()].sort()).toEqual(["j1", "j2", "x"]);
+    // The elbow's own hub is tagged j2, the shoulder link (moved by j1) j1.
+    const hubOf = (id: string) => c.joints.get(id)!.joint.children[0]!;
+    expect(axisOf(hubOf("j2"))).toBe("j2");
+    expect(axisOf(hubOf("j1"))).toBe("j1");
+  });
+
+  /** Vertical rays (along robot -Z) through robot-frame points around a joint. */
+  function rayThrough(c: ReturnType<typeof chain>, robotMm: Vec3): THREE.Ray {
+    c.root.updateMatrixWorld(true);
+    const p = c.root.localToWorld(new THREE.Vector3(...robotMm).multiplyScalar(c.scale));
+    const up = new THREE.Vector3(0, 0, 1).transformDirection(c.root.matrixWorld);
+    return new THREE.Ray(p.clone().addScaledVector(up, 5), up.clone().negate());
+  }
+
+  it("turns a quarter-turn drag around the shoulder into +90°", () => {
+    const c = chain();
+    for (const x of [0, 200]) {
+      applyPose(c, { x, j1: 0, j2: 0 });
+      const from = rayThrough(c, [x + 100, 0, 120]);
+      const to = rayThrough(c, [x, 100, 120]);
+      expect(dragDelta(c, "j1", from, to)).toBeCloseTo(90, 6);
+      expect(dragDelta(c, "j1", to, from)).toBeCloseTo(-90, 6);
+    }
+  });
+
+  it("turns a drag along the rail into millimetres", () => {
+    const c = chain();
+    applyPose(c, { x: 100 });
+    expect(dragDelta(c, "x", rayThrough(c, [100, 30, 0]), rayThrough(c, [175, 30, 0]))).toBeCloseTo(75, 6);
+  });
+
+  it("returns null for unknown axes", () => {
+    expect(dragDelta(chain(), "nope", new THREE.Ray(), new THREE.Ray())).toBeNull();
+  });
+});
+
+describe("collision model (same as the engine)", () => {
+  const R = { j1: 30, j2: 22, j3: 20, j4: 18, j5: 18, j6: 15 };
+  const arm = (): AxisConfig[] => [
+    axis("j1", "revolute", { radius_mm: R.j1 }),
+    axis("j2", "revolute", { parent: "j1", origin_mm: [35, 0, 109], rotation_deg: [0, -90, -90], radius_mm: R.j2 }),
+    axis("j3", "revolute", { parent: "j2", origin_mm: [146, 0, 0], rotation_deg: [0, 0, 90], radius_mm: R.j3 }),
+    axis("j4", "revolute", { parent: "j3", origin_mm: [-52, -115, 0], rotation_deg: [90, 0, 0], radius_mm: R.j4 }),
+    axis("j5", "revolute", { parent: "j4", rotation_deg: [-90, 0, 0], radius_mm: R.j5 }),
+    axis("j6", "revolute", { parent: "j5", rotation_deg: [90, 0, 0], tip_mm: [0, 0, 72], radius_mm: R.j6 }),
+  ];
+  const q = (...v: number[]) => Object.fromEntries(v.map((x, i) => [`j${i + 1}`, x]));
+
+  it("segment distance", () => {
+    expect(segmentDistance([0, 0, 0], [2, 0, 0], [1, -1, 1], [1, 1, 1])).toBeCloseTo(1, 12);
+    expect(segmentDistance([0, 0, 0], [1, 0, 0], [3, 0, 0], [4, 0, 0])).toBeCloseTo(2, 12);
+  });
+
+  it("needs a radius on every axis", () => {
+    expect(hasCollisionModel(arm())).toBe(true);
+    expect(hasCollisionModel(railArm())).toBe(false);
+    expect(clearance(railArm(), {})).toBeNull();
+  });
+
+  it("matches the known poses", () => {
+    expect(clearance(arm(), q(0, 0, 90, 0, 0, 0))!.gap).toBeGreaterThan(50);
+    // Independent Python analysis of the same model: about 7 mm at rest.
+    expect(clearance(arm(), q(0, -73, 180, 0, 0, 0))!.gap).toBeCloseTo(7, 0);
+    const bad = clearance(arm(), q(-170, -73, 180, -180, -120, -720))!;
+    expect([bad.a, bad.b]).toEqual(["j2", "j6"]);
+    expect(bad.gap).toBeLessThan(0);
+    expect(clearance(arm(), q(0, 90, 90, 0, 0, 0))!.b).toBe("floor");
+  });
+
+  it("finds the first contact of a sweep, and lets the arm back out", () => {
+    const rest = q(0, -73, 180, 0, 0, 0);
+    const c = checkSweep(arm(), rest, "j5", 60)!;
+    expect(c.b).toBe("j6");
+    expect(c.at.j5).toBeGreaterThan(0);
+    expect(c.at.j5).toBeLessThan(30);
+    expect(checkSweep(arm(), rest, "j5", -60)).toBeNull();
+    const into = q(0, -73, 180, 0, 25, 0);
+    expect(clearance(arm(), into)!.gap).toBeLessThan(COLLISION_MARGIN_MM);
+    expect(checkSweep(arm(), into, "j5", 0)).toBeNull();
+    expect(checkSweep(arm(), into, "j5", 40)).not.toBeNull();
   });
 });

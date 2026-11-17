@@ -32,6 +32,10 @@ rides on the rail carriage, links run joint to joint. Measured pose solid, comma
 
 ![3D viewer](website/public/screenshots/viewer.png)
 
+The same viewer with a simulated six-axis desktop arm (MotionCore's `robot-profiles/dummy-arm-virtual.toml`):
+
+![3D viewer, six-axis arm](website/public/screenshots/dummy-arm-pose.png)
+
 **Emergency stop** — after an E-STOP the engine reports `emergency_stopped`; motion controls are disabled,
 homing is forgotten and the fault must be reset before the drives can be enabled again.
 
@@ -115,8 +119,8 @@ requires one. `/api/info` reports `auth_required`; `/api/session` reports the to
 | Tab | Contents |
 |---|---|
 | Overview | Robot name/profile, state, active fault + derived alarms, MCU health summary, axis summary |
-| Motion | Enable/Disable/Stop, Reset Fault, per-axis jog/home/absolute move (homed axes only), soft-limit bars with commanded vs. measured position. Axes are commanded one at a time (the engine has no coordinated multi-axis moves yet) |
-| 3D Viewer | Connected robot from the profile's `[axis.geometry]` (parent joints, offsets, joint axes; engine-api ≥ 1.1), or each axis on its own when the profile has no geometry. Measured pose solid, commanded pose as ghost; camera framed on the robot; lazy-loaded (three.js is its own chunk) |
+| Motion | Enable/Disable/Stop, Reset Fault, Home all (the engine's home-all plan, axes of a step together; confirmed with steps and start pose; cancellable; sequential with engines before API 1.2), per-axis jog/home/absolute move (homed axes only), soft-limit bars with commanded vs. measured position. Axes are commanded one at a time (the engine has no coordinated multi-axis moves yet) |
+| 3D Viewer | Click a joint to select it, drag it to preview a target (amber, nothing sent), press Move to send one `move_to`; jog buttons in the joint panel. Previews that would make the robot collide with itself turn red and cannot be sent (profiles with link `radius`, engine-api ≥ 1.2; the engine checks again). Connected robot from the profile's `[axis.geometry]` (parent joints, offsets, joint axes; engine-api ≥ 1.1), or each axis on its own when the profile has no geometry. Measured pose solid, commanded pose as ghost; camera framed on the robot; lazy-loaded (three.js is its own chunk) |
 | Robot | Read-only RobotConfig: MCUs, axes, limits, actuator, pins |
 | Composer | Read-only device graph Robot → MCU → channel → axis → driver (actuator, step/dir/enable) + endstop. Editing comes later |
 | Firmware | Targets, "Build firmware" per configured MCU (virtual boards disabled), jobs with state/log/artifact (build hash, SHA-256), "Flash" for succeeded builds behind an explicit "drives are powered off" confirmation |

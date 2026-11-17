@@ -12,6 +12,7 @@ const COMMAND_LABEL: Record<CommandName, string> = {
   jog: "Jog",
   move_to: "Move",
   home: "Home",
+  home_all: "Home all",
 };
 
 /** Toast an API failure as "<label> failed: <code>". */

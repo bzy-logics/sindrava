@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import type { AxisConfig } from "../../types/api";
@@ -6,8 +6,9 @@ import { live } from "../../hooks/liveStore";
 import { useEngine } from "../../hooks/useEngine";
 import { fmt } from "../../components/common";
 import { mergeAxes } from "./axes";
-import { kinematicTree } from "./kinematics";
-import { applyPose, buildChain, type Chain } from "./scene";
+import { checkSweep, kinematicTree, type Contact } from "./kinematics";
+import { applyPose, axisOf, buildChain, dragDelta, type Chain } from "./scene";
+import { JointPanel } from "./JointPanel";
 
 const SPACING = 3.2;
 const LINK_LEN = 2;
@@ -130,6 +131,37 @@ export default function Viewer() {
     .map((a) => `${a.id}:${a.cfg?.kind ?? "?"}:${a.cfg?.min ?? ""}:${a.cfg?.max ?? ""}:${JSON.stringify(a.cfg?.geometry ?? null)}`)
     .join("|");
 
+  // Joint selected in the view, and its previewed target. The render loop
+  // and pointer handlers read them through refs.
+  const [selected, setSelected] = useState<string | null>(null);
+  const [preview, setPreview] = useState<number | null>(null);
+  const selectedRef = useRef(selected);
+  const previewRef = useRef(preview);
+  selectedRef.current = selected;
+  previewRef.current = preview;
+
+  // Collision check of the previewed move, with the engine's model; only
+  // when the engine checks too (every axis homed, link radii configured).
+  const commandedKey = (s.telemetry?.axes ?? []).map((a) => `${a.id}=${a.commanded_position.toFixed(3)}:${a.homed}`).join("|");
+  const contact: Contact | null = useMemo(() => {
+    const t = s.telemetry;
+    if (!selected || preview === null || !s.config?.collision_checking || !t || !t.axes.every((a) => a.homed)) return null;
+    const q = Object.fromEntries(t.axes.map((a) => [a.id, a.commanded_position]));
+    return checkSweep(s.config.axes, q, selected, preview);
+  }, [selected, preview, commandedKey, s.config]);
+  const contactRef = useRef(contact);
+  contactRef.current = contact;
+  const select = (id: string | null) => {
+    setSelected(id);
+    setPreview(null);
+  };
+  useEffect(() => {
+    if (selected && !axes.some((a) => a.id === selected)) select(null);
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && select(null);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [axesKey, selected]);
+
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return;
@@ -163,16 +195,24 @@ export default function Viewer() {
     const ghostMat = new THREE.MeshStandardMaterial({ color: 0x7dffb0, transparent: true, opacity: 0.28, depthWrite: false });
     const fixedMat = new THREE.MeshStandardMaterial({ color: 0x3a4250, metalness: 0.3, roughness: 0.7 });
     const limitMat = new THREE.MeshBasicMaterial({ color: 0xff6b5a });
-    let chains: { measured: Chain; commanded: Chain } | null = null;
+    const previewMat = new THREE.MeshStandardMaterial({ color: 0xffb547, transparent: true, opacity: 0.45, depthWrite: false });
+    const ringMat = new THREE.MeshBasicMaterial({ color: 0xffd400 });
+    let chains: { measured: Chain; commanded: Chain; preview: Chain } | null = null;
     if (cfgs.length === axes.length) {
       const measured = buildChain(cfgs, { body: solidMat, fixed: fixedMat, limit: limitMat });
       const commanded = measured && buildChain(cfgs, { body: ghostMat }, measured.scale);
-      if (measured && commanded) {
-        chains = { measured, commanded };
-        robot.add(measured.root, commanded.root);
+      const preview = measured && buildChain(cfgs, { body: previewMat }, measured.scale);
+      if (measured && commanded && preview) {
+        chains = { measured, commanded, preview };
+        preview.root.visible = false;
+        robot.add(measured.root, commanded.root, preview.root);
       }
     }
-    if (!chains) [solidMat, ghostMat, fixedMat, limitMat].forEach((m) => m.dispose());
+    if (!chains) [solidMat, ghostMat, fixedMat, limitMat, previewMat, ringMat].forEach((m) => m.dispose());
+    // Selection marker: a ring around the selected joint's axis.
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.32, 0.03, 8, 48), ringMat);
+    ring.visible = false;
+    let ringOn: string | null = null;
     const visuals = chains
       ? []
       : buildAxes(
@@ -184,6 +224,64 @@ export default function Viewer() {
     controls.enableDamping = true;
     controls.target.set(0, 0.5, 0);
     controls.update();
+
+    // ---- picking and dragging (connected robot only)
+    const raycaster = new THREE.Raycaster();
+    const rayAt = (e: PointerEvent): THREE.Ray => {
+      const r = renderer.domElement.getBoundingClientRect();
+      const ndc = new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+      raycaster.setFromCamera(ndc, camera);
+      return raycaster.ray.clone();
+    };
+    const pick = (e: PointerEvent): string | null => {
+      if (!chains) return null;
+      rayAt(e);
+      const hit = raycaster.intersectObject(chains.measured.root, true)[0];
+      return hit ? axisOf(hit.object) : null;
+    };
+    const measuredOf = (id: string) => live.getState().telemetry?.axes.find((a) => a.id === id)?.measured_position ?? null;
+    let down: { x: number; y: number; id: string | null } | null = null;
+    let drag: { id: string; last: THREE.Ray; value: number } | null = null;
+    const onDown = (e: PointerEvent) => {
+      if (e.button !== 0) return;
+      const id = pick(e);
+      down = { x: e.clientX, y: e.clientY, id };
+      const sel = selectedRef.current;
+      const base = sel ? (previewRef.current ?? measuredOf(sel)) : null;
+      if (chains && id !== null && id === sel && base !== null) {
+        drag = { id, last: rayAt(e), value: base };
+        controls.enabled = false;
+        renderer.domElement.setPointerCapture(e.pointerId);
+      }
+    };
+    const onMove = (e: PointerEvent) => {
+      if (drag && chains) {
+        const now = rayAt(e);
+        const d = dragDelta(chains.measured, drag.id, drag.last, now);
+        if (d !== null) {
+          const cfg = chains.measured.joints.get(drag.id)!.cfg;
+          drag.value = Math.min(cfg.max, Math.max(cfg.min, drag.value + d));
+          drag.last = now;
+          setPreview(Math.round(drag.value * 100) / 100);
+        }
+        return;
+      }
+      const over = pick(e);
+      renderer.domElement.style.cursor = over ? (over === selectedRef.current ? "grab" : "pointer") : "";
+    };
+    const onUp = (e: PointerEvent) => {
+      if (drag) {
+        drag = null;
+        controls.enabled = true;
+      } else if (down && Math.hypot(e.clientX - down.x, e.clientY - down.y) < 5 && down.id) {
+        // A click (not an orbit drag) on a part selects its joint.
+        if (down.id !== selectedRef.current) select(down.id);
+      }
+      down = null;
+    };
+    renderer.domElement.addEventListener("pointerdown", onDown);
+    renderer.domElement.addEventListener("pointermove", onMove);
+    renderer.domElement.addEventListener("pointerup", onUp);
 
     const resize = () => {
       const w = host.clientWidth || 1;
@@ -206,8 +304,25 @@ export default function Viewer() {
       raf = requestAnimationFrame(tick);
       const tel = live.getState().telemetry;
       if (chains && tel) {
-        applyPose(chains.measured, Object.fromEntries(tel.axes.map((a) => [a.id, a.measured_position])));
+        const measuredPose = Object.fromEntries(tel.axes.map((a) => [a.id, a.measured_position]));
+        applyPose(chains.measured, measuredPose);
         applyPose(chains.commanded, Object.fromEntries(tel.axes.map((a) => [a.id, a.commanded_position])));
+        const sel = selectedRef.current;
+        const pv = previewRef.current;
+        chains.preview.root.visible = sel !== null && pv !== null;
+        previewMat.color.setHex(contactRef.current ? 0xff4d4d : 0xffb547);
+        if (sel !== null && pv !== null) applyPose(chains.preview, { ...measuredPose, [sel]: pv });
+        if (sel !== ringOn) {
+          ringOn = sel;
+          ring.removeFromParent();
+          const j = sel ? chains.measured.joints.get(sel) : undefined;
+          ring.visible = !!j;
+          if (j) {
+            j.joint.add(ring);
+            // Torus lies in its XY plane: turn its normal (Z) onto the joint axis.
+            ring.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), j.axis);
+          }
+        }
         if (!framed) {
           framed = true;
           robot.updateMatrixWorld(true);
@@ -235,6 +350,10 @@ export default function Viewer() {
     tick();
 
     return () => {
+      renderer.domElement.removeEventListener("pointerdown", onDown);
+      renderer.domElement.removeEventListener("pointermove", onMove);
+      renderer.domElement.removeEventListener("pointerup", onUp);
+      ring.geometry.dispose();
       cancelAnimationFrame(raf);
       ro.disconnect();
       controls.dispose();
@@ -256,21 +375,48 @@ export default function Viewer() {
         <div className="legend-row">
           <span className="swatch swatch-ghost" /> planned (commanded)
         </div>
-        <div className="legend-row">
-          <span className="swatch swatch-limit" /> {tree?.ok ? "rail travel limit" : "soft limit"}
-        </div>
+        {(!tree?.ok || axes.some((a) => a.cfg?.kind === "prismatic")) && (
+          <div className="legend-row">
+            <span className="swatch swatch-limit" /> {tree?.ok ? "rail travel limit" : "soft limit"}
+          </div>
+        )}
         <div className="muted small viewer-mode">
           {tree?.ok
             ? "Connected robot from the profile's geometry."
             : "Axes shown separately: the robot profile has no geometry ([axis.geometry]), so how they are mounted is unknown."}
         </div>
-        {axes.map((a) => (
-          <div key={a.id} className="legend-row mono small">
-            {a.id}: {fmt(a.tel?.measured_position)} / {fmt(a.tel?.commanded_position)} {a.cfg?.unit ?? ""}
+        {tree?.ok && (
+          <div className="legend-row">
+            <span className="swatch swatch-preview" /> preview (not sent)
           </div>
+        )}
+        {axes.map((a) => (
+          <button
+            key={a.id}
+            className={`legend-row legend-axis mono small ${selected === a.id ? "active" : ""}`}
+            onClick={() => select(selected === a.id ? null : a.id)}
+            aria-pressed={selected === a.id}
+            title="Select this joint"
+          >
+            {a.id}: {fmt(a.tel?.measured_position)} / {fmt(a.tel?.commanded_position)} {a.cfg?.unit ?? ""}
+          </button>
         ))}
-        <div className="muted small">Drag to orbit · wheel to zoom · right-drag to pan</div>
+        <div className="muted small">
+          {tree?.ok ? "Click a joint to select it, then drag it to preview a move. " : "Select a joint above. "}
+          Drag elsewhere to orbit · wheel to zoom · right-drag to pan · Esc to deselect
+        </div>
       </div>
+      {selected && (
+        <JointPanel
+          id={selected}
+          cfg={axes.find((a) => a.id === selected)?.cfg ?? null}
+          tel={axes.find((a) => a.id === selected)?.tel ?? null}
+          preview={preview}
+          onPreview={setPreview}
+          onClose={() => select(null)}
+          contact={contact}
+        />
+      )}
     </div>
   );
 }

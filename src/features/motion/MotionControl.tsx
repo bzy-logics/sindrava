@@ -5,6 +5,8 @@ import { useCommand } from "../../hooks/useCommand";
 import { Empty, Led, StateBadge, fmt } from "../../components/common";
 import { ConfirmButton } from "../../components/ConfirmButton";
 import { allowed, mergeAxes, type MergedAxis } from "./axes";
+import { homeableAxes } from "../../hooks/homeAll";
+import { homeAll, useHomeAll } from "../../hooks/useHomeAll";
 
 const NEEDS_OPERATOR = "Requires the operator role";
 
@@ -94,7 +96,9 @@ export function MotionControl() {
           <button className="btn btn-warn" disabled={!online || !allowed.stop(state) || !perms.stop} onClick={() => void run("stop", {})}>
             Stop
           </button>
+          <HomeAllButton />
         </div>
+        <HomeAllStatus />
       </section>
 
       {axes.length === 0 ? (
@@ -244,4 +248,116 @@ function AxisCard({ id, cfg, tel, state, online }: MergedAxis & { state: RobotSt
       {!homed && <div className="muted small">Absolute moves are disabled until the axis is homed.</div>}
     </section>
   );
+}
+
+/** Home every homeable axis in profile order (confirmed first). */
+function HomeAllButton() {
+  const s = useEngine();
+  const perms = usePermissions();
+  const { online, state } = useTelemetry();
+  const ha = useHomeAll();
+  const ids = homeableAxes(s.config?.axes);
+  const skipped = (s.config?.axes.length ?? 0) - ids.length;
+  const busy = ha.kind === "running";
+  // engine-api >= 1.2: the engine runs the profile's plan (groups together).
+  const plan = s.config?.home_all ?? null;
+  const groups = plan ? plan.groups.filter((g) => g.length > 0) : [];
+  const total = plan ? groups.flat().length : ids.length;
+  return (
+    <ConfirmButton
+      className="btn"
+      disabled={!online || !allowed.home(state) || !perms.command || total === 0 || busy}
+      title={!perms.command ? "Requires the operator role" : ids.length === 0 ? "No axis has a homing configuration" : undefined}
+      confirmTitle="Home all axes"
+      confirmText={
+        plan ? (
+          <div className="stack">
+            <p>
+              Home {total} {total === 1 ? "axis" : "axes"} in {groups.length} {groups.length === 1 ? "step" : "steps"}. The axes of one step move at the
+              same time, each until its endstop triggers:
+            </p>
+            <ol className="home-plan">
+              {groups.map((g, i) => (
+                <li key={i}>
+                  <span className="mono">{g.join(", ")}</span>
+                  {g.length > 1 && <span className="muted"> together</span>}
+                </li>
+              ))}
+            </ol>
+            <div className="note note-err">
+              <strong>Start pose:</strong> {plan.start_pose || "not specified in the robot profile."} Joint positions are unknown until each joint
+              reaches its switch, so no software can check these paths: make sure the robot is in this pose and every path is clear.
+            </div>
+            {s.config?.collision_checking && <p className="small muted">Once homed, moves that would make the robot collide with itself are refused.</p>}
+          </div>
+        ) : (
+          <p>
+            Home {ids.length} {ids.length === 1 ? "axis" : "axes"} one after the other, in this order:{" "}
+            <span className="mono">{ids.join(" → ")}</span>. Each axis moves until its endstop triggers; make sure every path is clear.
+            {skipped > 0 && ` ${skipped} ${skipped === 1 ? "axis has" : "axes have"} no homing configuration and will be skipped.`} The sequence stops on
+            any fault, emergency stop or loss of live data.
+          </p>
+        )
+      }
+      confirmLabel={`Home ${total} ${total === 1 ? "axis" : "axes"}`}
+      onConfirm={() => void (plan ? homeAll.startPlan(groups) : homeAll.start(ids))}
+    >
+      Home all
+    </ConfirmButton>
+  );
+}
+
+/** Progress and outcome of "Home all". */
+function HomeAllStatus() {
+  const ha = useHomeAll();
+  const perms = usePermissions();
+  switch (ha.kind) {
+    case "idle":
+      return null;
+    case "running":
+      return (
+        <div className="home-all" role="status">
+          <span>
+            Homing <span className="mono">{ha.axes[ha.index]}</span> ({ha.index + 1}/{ha.axes.length})…
+          </span>
+          <button className="btn btn-warn btn-small" disabled={!perms.stop} onClick={() => void homeAll.cancel()}>
+            Cancel
+          </button>
+        </div>
+      );
+    case "done":
+      return (
+        <div className="home-all home-all-ok" role="status">
+          <span>
+            All {ha.axes.flatMap((l) => l.split(", ")).length} {ha.axes.flatMap((l) => l.split(", ")).length === 1 ? "axis" : "axes"} homed.
+          </span>
+          <button className="btn btn-small" onClick={() => homeAll.dismiss()} aria-label="Dismiss">
+            ×
+          </button>
+        </div>
+      );
+    case "failed":
+      return (
+        <div className="home-all home-all-err" role="alert">
+          <span>
+            Home all stopped at <span className="mono">{ha.axes[ha.index]}</span> ({ha.index + 1}/{ha.axes.length}): {ha.reason}
+          </span>
+          <button className="btn btn-small" onClick={() => homeAll.dismiss()} aria-label="Dismiss">
+            ×
+          </button>
+        </div>
+      );
+    case "cancelled":
+      return (
+        <div className="home-all" role="status">
+          <span>
+            Home all cancelled at <span className="mono">{ha.axes[ha.index]}</span>; {ha.axes[ha.index]?.includes(",") ? "those axes are" : "that axis is"} not
+            homed.
+          </span>
+          <button className="btn btn-small" onClick={() => homeAll.dismiss()} aria-label="Dismiss">
+            ×
+          </button>
+        </div>
+      );
+  }
 }

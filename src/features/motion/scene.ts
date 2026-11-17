@@ -70,7 +70,7 @@ export function buildChain(axes: AxisConfig[], mats: ChainMaterials, scale = sce
   const root = new THREE.Group();
   root.rotation.x = -Math.PI / 2; // robot Z-up -> scene Y-up
   const joints = new Map<string, ChainJoint>();
-  const r = 0.09; // link radius, scene units
+  const DEFAULT_R = 0.09; // link radius (scene units) without a profile radius
 
   for (const a of tree.order) {
     const g = a.geometry!;
@@ -86,6 +86,8 @@ export function buildChain(axes: AxisConfig[], mats: ChainMaterials, scale = sce
     joint.name = `${a.id}:joint`;
     mount.add(joint);
     const axis = new THREE.Vector3(...g.axis).normalize();
+    // Real link thickness when the profile gives one (collision model).
+    const r = typeof g.radius_mm === "number" ? g.radius_mm * scale : DEFAULT_R;
 
     if (a.kind === "prismatic") {
       if (mats.fixed) {
@@ -106,7 +108,8 @@ export function buildChain(axes: AxisConfig[], mats: ChainMaterials, scale = sce
       const carriage = new THREE.Mesh(new THREE.BoxGeometry(r * 5, r * 5, r * 5), mats.body);
       joint.add(carriage);
     } else {
-      const hub = new THREE.Mesh(new THREE.CylinderGeometry(r * 2, r * 2, r * 3, 24), mats.body);
+      const hubR = typeof g.radius_mm === "number" ? r * 1.15 : r * 2;
+      const hub = new THREE.Mesh(new THREE.CylinderGeometry(hubR, hubR, hubR * 1.5, 24), mats.body);
       hub.quaternion.copy(alongAxis(axis));
       joint.add(hub);
     }
@@ -119,13 +122,64 @@ export function buildChain(axes: AxisConfig[], mats: ChainMaterials, scale = sce
       if (link) joint.add(link);
     }
     if (g.tip_mm) {
-      const tip = new THREE.Mesh(new THREE.SphereGeometry(r * 1.6, 16, 12), mats.body);
+      const tip = new THREE.Mesh(new THREE.SphereGeometry(typeof g.radius_mm === "number" ? r * 1.1 : r * 1.6, 16, 12), mats.body);
       tip.position.set(g.tip_mm[0] * scale, g.tip_mm[1] * scale, g.tip_mm[2] * scale);
       joint.add(tip);
     }
+    // Tag this joint's parts so a pick can be traced back to its axis. Child
+    // joints are attached later (parents come first in `order`) and tag their
+    // own parts, so a link belongs to the joint that moves it.
+    mount.traverse((o) => (o.userData.axisId = a.id));
     joints.set(a.id, { cfg: a, joint, axis });
   }
   return { root, joints, scale };
+}
+
+/** The axis a picked object belongs to (walks up to the nearest tagged ancestor). */
+export function axisOf(obj: THREE.Object3D | null): string | null {
+  for (let o = obj; o; o = o.parent) if (typeof o.userData.axisId === "string") return o.userData.axisId;
+  return null;
+}
+
+/**
+ * Joint-value change (deg or mm) for dragging from `from` to `to` (rays in
+ * world space). Revolute: angle swept around the joint axis, measured in the
+ * plane through the joint perpendicular to its axis. Prismatic: travel along
+ * the slide direction (closest approach of each ray to the slide line).
+ * Returns null when the drag cannot be measured (ray parallel to the plane).
+ */
+export function dragDelta(chain: Chain, id: string, from: THREE.Ray, to: THREE.Ray): number | null {
+  const j = chain.joints.get(id);
+  if (!j) return null;
+  chain.root.updateMatrixWorld(true);
+  // Joint frame before its own motion = the mount (joint's parent).
+  const mount = j.joint.parent!;
+  const origin = mount.getWorldPosition(new THREE.Vector3());
+  const axis = j.axis.clone().transformDirection(mount.matrixWorld).normalize();
+  if (j.cfg.kind === "prismatic") {
+    const along = (r: THREE.Ray) => {
+      // Closest point on the slide line to the ray.
+      const w0 = new THREE.Vector3().subVectors(origin, r.origin);
+      const b = axis.dot(r.direction);
+      const d = axis.dot(w0);
+      const e = r.direction.dot(w0);
+      const den = 1 - b * b;
+      if (Math.abs(den) < 1e-6) return null;
+      return (b * e - d) / den;
+    };
+    const a = along(from);
+    const b = along(to);
+    return a === null || b === null ? null : (b - a) / chain.scale;
+  }
+  const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(axis, origin);
+  const pa = from.intersectPlane(plane, new THREE.Vector3());
+  const pb = to.intersectPlane(plane, new THREE.Vector3());
+  if (!pa || !pb) return null;
+  const va = pa.sub(origin);
+  const vb = pb.sub(origin);
+  if (va.lengthSq() < 1e-12 || vb.lengthSq() < 1e-12) return null;
+  const angle = Math.atan2(new THREE.Vector3().crossVectors(va, vb).dot(axis), va.dot(vb));
+  return angle / DEG;
 }
 
 /** Set every joint to its value (deg / mm); missing values leave the joint unchanged. */
