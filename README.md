@@ -1,5 +1,7 @@
 # sindrava
 
+**Website & docs: [sindrava.bzy-logics.com](https://sindrava.bzy-logics.com)** · Engine: [motioncore.bzy-logics.com](https://motioncore.bzy-logics.com) · Gateway: [ratavyr.bzy-logics.com](https://ratavyr.bzy-logics.com)
+
 Operator UI for MotionCore. Vite + React 19 + TypeScript (strict) + plain Three.js, plain CSS.
 
 MotionCore is split into three repos:
