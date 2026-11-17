@@ -984,10 +984,13 @@ code {
   align-items: center;
   max-width: 560px;
 }
-.token-form input {
+.token-form input:not([type="checkbox"]) {
   flex: 1;
   min-width: 180px;
   font-family: var(--mono);
+}
+.token-form .check {
+  white-space: nowrap;
 }
 .token-form-compact {
   flex: 1;
@@ -1276,4 +1279,8 @@ td.actions {
     text-transform: uppercase;
     letter-spacing: 0.06em;
   }
+}
+
+.viewer-mode {
+  max-width: 260px;
 }

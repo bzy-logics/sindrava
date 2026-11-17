@@ -153,6 +153,24 @@ export interface AxisConfig {
   dir_pin: string;
   enable_pin: string;
   endstop_pin: string | null;
+  /** Kinematic placement; null without geometry, absent on engine-api < 1.1. */
+  geometry?: AxisGeometry | null;
+}
+
+/**
+ * URDF-style joint placement:
+ * frame(child) = frame(parent) · T(origin_mm) · RPY(rotation_deg) · Joint(q about axis).
+ */
+export interface AxisGeometry {
+  /** Parent axis id; null = mounted on the robot base. */
+  parent: string | null;
+  origin_mm: [number, number, number];
+  /** Fixed roll, pitch, yaw in degrees (about X, Y, Z, in that order). */
+  rotation_deg: [number, number, number];
+  /** Unit rotation axis (revolute) or slide direction (prismatic) in the joint frame. */
+  axis: [number, number, number];
+  /** End of this joint's link (e.g. tool flange) in its joint frame, mm; null if not configured. */
+  tip_mm: [number, number, number] | null;
 }
 
 export interface RobotConfig {

@@ -6,6 +6,8 @@ import { live } from "../../hooks/liveStore";
 import { useEngine } from "../../hooks/useEngine";
 import { fmt } from "../../components/common";
 import { mergeAxes } from "./axes";
+import { kinematicTree } from "./kinematics";
+import { applyPose, buildChain, type Chain } from "./scene";
 
 const SPACING = 3.2;
 const LINK_LEN = 2;
@@ -112,13 +114,21 @@ function disposeTree(obj: THREE.Object3D) {
   mats.forEach((m) => m.dispose());
 }
 
-/** 3D view: measured pose solid, planned (commanded) pose as a translucent ghost. Lazy-loaded (three.js). */
+/**
+ * 3D view: measured pose solid, planned (commanded) pose as a translucent
+ * ghost. With geometry in the robot profile (engine-api >= 1.1) the axes are
+ * drawn as one connected robot; without it each axis is shown on its own,
+ * because the viewer must not invent how they are mounted. Lazy-loaded (three.js).
+ */
 export default function Viewer() {
   const hostRef = useRef<HTMLDivElement>(null);
   const s = useEngine();
   const axes = mergeAxes(s.config?.axes ?? null, s.telemetry?.axes ?? []);
-  // Rebuild the scene only when the set/kind of axes changes.
-  const axesKey = axes.map((a) => `${a.id}:${a.cfg?.kind ?? "?"}:${a.cfg?.min ?? ""}:${a.cfg?.max ?? ""}`).join("|");
+  const tree = s.config ? kinematicTree(s.config.axes) : null;
+  // Rebuild the scene only when the set/kind/geometry of axes changes.
+  const axesKey = axes
+    .map((a) => `${a.id}:${a.cfg?.kind ?? "?"}:${a.cfg?.min ?? ""}:${a.cfg?.max ?? ""}:${JSON.stringify(a.cfg?.geometry ?? null)}`)
+    .join("|");
 
   useEffect(() => {
     const host = hostRef.current;
@@ -147,10 +157,28 @@ export default function Viewer() {
 
     const robot = new THREE.Group();
     scene.add(robot);
-    const visuals = buildAxes(
-      robot,
-      axes.map((a) => ({ id: a.id, cfg: a.cfg })),
-    );
+    // Connected robot when every axis has geometry, separate axes otherwise.
+    const cfgs = axes.map((a) => a.cfg).filter((c): c is AxisConfig => c !== null);
+    const solidMat = new THREE.MeshStandardMaterial({ color: 0x4fa3ff, metalness: 0.2, roughness: 0.5 });
+    const ghostMat = new THREE.MeshStandardMaterial({ color: 0x7dffb0, transparent: true, opacity: 0.28, depthWrite: false });
+    const fixedMat = new THREE.MeshStandardMaterial({ color: 0x3a4250, metalness: 0.3, roughness: 0.7 });
+    const limitMat = new THREE.MeshBasicMaterial({ color: 0xff6b5a });
+    let chains: { measured: Chain; commanded: Chain } | null = null;
+    if (cfgs.length === axes.length) {
+      const measured = buildChain(cfgs, { body: solidMat, fixed: fixedMat, limit: limitMat });
+      const commanded = measured && buildChain(cfgs, { body: ghostMat }, measured.scale);
+      if (measured && commanded) {
+        chains = { measured, commanded };
+        robot.add(measured.root, commanded.root);
+      }
+    }
+    if (!chains) [solidMat, ghostMat, fixedMat, limitMat].forEach((m) => m.dispose());
+    const visuals = chains
+      ? []
+      : buildAxes(
+          robot,
+          axes.map((a) => ({ id: a.id, cfg: a.cfg })),
+        );
 
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
@@ -170,10 +198,26 @@ export default function Viewer() {
     const ro = new ResizeObserver(resize);
     ro.observe(host);
 
+    // A connected robot is framed once its first pose is known; the
+    // separate-axes layout keeps the fixed camera.
+    let framed = chains === null;
     let raf = 0;
     const tick = () => {
       raf = requestAnimationFrame(tick);
       const tel = live.getState().telemetry;
+      if (chains && tel) {
+        applyPose(chains.measured, Object.fromEntries(tel.axes.map((a) => [a.id, a.measured_position])));
+        applyPose(chains.commanded, Object.fromEntries(tel.axes.map((a) => [a.id, a.commanded_position])));
+        if (!framed) {
+          framed = true;
+          robot.updateMatrixWorld(true);
+          const box = new THREE.Box3().setFromObject(chains.measured.root);
+          const center = box.getCenter(new THREE.Vector3());
+          const size = Math.max(box.getSize(new THREE.Vector3()).length(), 1);
+          controls.target.copy(center);
+          camera.position.copy(center).add(new THREE.Vector3(0.55, 0.6, 0.9).normalize().multiplyScalar(size * 1.4));
+        }
+      }
       for (const v of visuals) {
         const a = tel?.axes.find((x) => x.id === v.id);
         if (!a) continue;
@@ -213,7 +257,12 @@ export default function Viewer() {
           <span className="swatch swatch-ghost" /> planned (commanded)
         </div>
         <div className="legend-row">
-          <span className="swatch swatch-limit" /> soft limit
+          <span className="swatch swatch-limit" /> {tree?.ok ? "rail travel limit" : "soft limit"}
+        </div>
+        <div className="muted small viewer-mode">
+          {tree?.ok
+            ? "Connected robot from the profile's geometry."
+            : "Axes shown separately: the robot profile has no geometry ([axis.geometry]), so how they are mounted is unknown."}
         </div>
         {axes.map((a) => (
           <div key={a.id} className="legend-row mono small">
