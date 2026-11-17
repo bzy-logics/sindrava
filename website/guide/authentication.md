@@ -6,6 +6,8 @@ If ratavyr has API tokens configured, every endpoint except `GET /api/health` an
 
 Enter the token in the banner that appears, or under **Settings**.
 
+![Sign-in banner: the server requires an API token](/screenshots/auth-required.png)
+
 | Option | Stored in | Lifetime |
 |---|---|---|
 | default | `sessionStorage` | Forgotten when the tab closes |
@@ -26,9 +28,15 @@ Both use the key `motioncore.api_token`. Only tick "remember" on a device you tr
 | operator | Everything a viewer can, plus Enable / Disable, Reset fault, jog, home, move, firmware builds |
 | admin | Everything, including flashing firmware |
 
+![Motion screen as a viewer: role shown in the header, only Stop and E-STOP are available](/screenshots/role-viewer.png)
+
 Controls your role may not use are disabled with an explanation. The server enforces the same rules regardless of what the UI shows. Tokens and roles are configured on the gateway: [ratavyr: authentication](https://ratavyr.bzy-logics.com/guide/authentication).
 
 ## Errors
+
+Your role and how the token is stored are shown under **Settings**:
+
+![Settings: token stored for this tab, role operator](/screenshots/settings.png)
 
 - Any **401** response brings back the sign-in banner.
 - A **403** is shown as a failed action.

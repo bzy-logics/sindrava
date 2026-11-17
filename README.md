@@ -17,6 +17,34 @@ HTTP API, holds no robot logic of its own and never synthesises robot state. Eve
 is validated by the server/engine; the UI's button enablement is only a convenience. Any other
 HTTP client (scripts, HMI panels, a different frontend) can use the same API.
 
+## Screenshots
+
+Taken from the running stack (sindrava → ratavyr → motioncore engine → virtual MCU) with motioncore's
+`robot-profiles/rail-arm-virtual.toml`: a two-link arm carried by a linear rail. No hardware involved.
+
+**Motion** — enable/disable/stop, per-axis jog, home and absolute moves, commanded vs. measured position
+within the soft limits. The E-STOP in the header is on every screen.
+
+![Motion control](website/public/screenshots/motion.png)
+
+**3D Viewer** — the robot as one connected machine, built from the profile's kinematic geometry: the arm
+rides on the rail carriage, links run joint to joint. Measured pose solid, commanded pose as a ghost.
+
+![3D viewer](website/public/screenshots/viewer.png)
+
+**Emergency stop** — after an E-STOP the engine reports `emergency_stopped`; motion controls are disabled,
+homing is forgotten and the fault must be reset before the drives can be enabled again.
+
+![Emergency stopped](website/public/screenshots/estop-confirmed.png)
+
+| Overview | Diagnostics |
+|---|---|
+| ![Overview](website/public/screenshots/overview.png) | ![Diagnostics](website/public/screenshots/diagnostics.png) |
+| **Robot** | **Composer** |
+| ![Robot configuration](website/public/screenshots/robot.png) | ![Robot composer](website/public/screenshots/composer.png) |
+| **Firmware** | |
+| ![Firmware](website/public/screenshots/firmware.png) | |
+
 ## API contract
 
 The contract is **`ratavyr/docs/rest-api.md` (v1)**. `src/types/api.ts` mirrors it
@@ -88,7 +116,7 @@ requires one. `/api/info` reports `auth_required`; `/api/session` reports the to
 |---|---|
 | Overview | Robot name/profile, state, active fault + derived alarms, MCU health summary, axis summary |
 | Motion | Enable/Disable/Stop, Reset Fault, per-axis jog/home/absolute move (homed axes only), soft-limit bars with commanded vs. measured position. Axes are commanded one at a time (the engine has no coordinated multi-axis moves yet) |
-| 3D Viewer | Measured pose solid, planned (commanded) pose as ghost; lazy-loaded (three.js is its own chunk) |
+| 3D Viewer | Connected robot from the profile's `[axis.geometry]` (parent joints, offsets, joint axes; engine-api ≥ 1.1), or each axis on its own when the profile has no geometry. Measured pose solid, commanded pose as ghost; camera framed on the robot; lazy-loaded (three.js is its own chunk) |
 | Robot | Read-only RobotConfig: MCUs, axes, limits, actuator, pins |
 | Composer | Read-only device graph Robot → MCU → channel → axis → driver (actuator, step/dir/enable) + endstop. Editing comes later |
 | Firmware | Targets, "Build firmware" per configured MCU (virtual boards disabled), jobs with state/log/artifact (build hash, SHA-256), "Flash" for succeeded builds behind an explicit "drives are powered off" confirmation |
@@ -121,8 +149,9 @@ end-to-end test against freshly built motioncore and ratavyr.
 
 - **Robot Composer is read-only.** The engine has no configuration editing or validation API; robot
   profiles are TOML files loaded when the engine starts.
-- **3D viewer** shows each axis as its own joint (revolute arm or prismatic rail). An articulated
-  kinematic chain needs link geometry the engine does not expose yet.
+- **3D viewer** draws a connected robot only when the robot profile defines geometry for every axis
+  (`[axis.geometry]`, engine-api ≥ 1.1). Otherwise each axis is shown on its own, because how the axes
+  are mounted is unknown. Link shapes are schematic (cylinders between joints); there are no meshes.
 - **No coordinated multi-axis motion** and no planned-trajectory preview: the engine moves one axis per
   command. Commanded vs. measured position is shown per axis.
 - **Firmware verify** (running build vs. artifact) is CLI-only in the engine.

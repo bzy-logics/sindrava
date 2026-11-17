@@ -6,6 +6,8 @@ sindrava is the browser operator UI for [MotionCore](https://motioncore.bzy-logi
 browser: sindrava ──REST / WebSocket──▶ ratavyr ──gRPC──▶ motioncore engine ──▶ MCU
 ```
 
+![sindrava's 3D viewer showing a two-link arm on a linear rail](/screenshots/viewer.png)
+
 MotionCore is split into three repositories:
 
 | Repository | Role | Docs |
@@ -28,7 +30,7 @@ Any other HTTP client — scripts, HMI panels, a different frontend — can use 
 
 - See robot state, faults, MCU health and every axis at a glance.
 - Enable and disable drives, home, jog and move axes, stop, and E-stop.
-- See commanded vs. measured pose in 3D.
+- See commanded vs. measured pose in 3D — as one connected robot when the profile describes its geometry.
 - Inspect the robot configuration and its device graph.
 - Build firmware and, as an admin, flash it.
 - Inspect plugins, the MCU link, queue fill, position history and the log.

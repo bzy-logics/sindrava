@@ -12,6 +12,12 @@ The on-screen **E-STOP** is a software stop. It travels browser → ratavyr → 
 - If the request fails, or no confirmation arrives within **2 s**, it tells the operator to use the hardware emergency stop.
 - It is labelled as a software stop.
 
+![Header after pressing E-STOP: emergency stopped, and 'E-STOP confirmed by engine' under the button](/screenshots/estop-confirmed-header.png)
+
+After the engine confirms, the Motion screen shows the latched fault; axes are no longer homed and motion stays disabled until **Reset fault**:
+
+![Motion screen after a confirmed E-STOP, with the emergency_stop fault and Reset Fault button](/screenshots/estop-confirmed.png)
+
 ## Confirmations
 
 | Action | Why it asks |
@@ -22,6 +28,8 @@ The on-screen **E-STOP** is a software stop. It travels browser → ratavyr → 
 | **Flash** | Requires ticking "drives are powered off" |
 
 In every dialog, **Cancel has the focus**, so pressing Enter or Escape never confirms by accident.
+
+![Confirmation dialog before enabling drives, with Cancel focused](/screenshots/confirm-enable.png)
 
 ## Connection status
 
@@ -36,6 +44,8 @@ The header always shows how fresh the data is:
 | `faulted` | The robot has a latched fault |
 
 **Motion controls are disabled unless the data is live and fresh.** You can't command a robot you can't currently see.
+
+![Engine disconnected: banner says values are stale, every motion control is disabled, E-STOP stays available](/screenshots/engine-disconnected.png)
 
 ## Never synthesised
 
