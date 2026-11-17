@@ -24,6 +24,7 @@ After the engine confirms, the Motion screen shows the latched fault; axes are n
 |---|---|
 | **Enable** | Energises the drives |
 | **Home** | Moves the axis toward its endstop |
+| **Home all** | Moves every homeable axis; lists the steps (axes of a step move together) and the start pose to check |
 | **Reset fault** | Clears a latched fault (motion does not resume, axes must be re-homed) |
 | **Flash** | Requires ticking "drives are powered off" |
 

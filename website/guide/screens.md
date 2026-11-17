@@ -16,6 +16,9 @@ Robot name and profile, robot state, the active fault and derived alarms, an MCU
 
 - **Enable / Disable / Stop** and **Reset fault**.
 - Per axis: **jog** (relative), **home**, and **absolute move** — absolute only for homed axes.
+- **Home all**: homes every axis that has a homing configuration. With engine API 1.2 or newer, the engine runs the robot profile's home-all plan: the axes of one step home **at the same time**, and the steps run in order. The confirmation lists the steps and the start pose the plan was designed for: joint positions are unknown until each switch triggers, so no software can check these paths — make sure the robot is in that pose. Progress shows as *Homing j4, j5, j6 (1/2)…* with a **Cancel** button (sends Stop). It stops at the first fault, emergency stop or loss of live data and says where; it keeps running if you switch screens. With older engines, sindrava homes the axes one after the other in profile order, each an ordinary home command.
+
+  ![Home all confirmation: two steps of three axes each, and the start pose to check](/screenshots/home-all-plan.png)
 - **Soft-limit bars** showing commanded vs. measured position within `[min, max]`.
 
 ![Motion: enable, disable and stop, and a card per axis with jog, home and absolute move](/screenshots/motion.png)
@@ -30,6 +33,19 @@ The robot in 3D: measured pose drawn solid, planned (commanded) pose as a transl
 
 - **Connected robot.** When the robot profile describes how the joints are mounted (`[axis.geometry]`: parent joint, offset, rotation, joint axis — see [MotionCore: configuration](https://motioncore.bzy-logics.com/guide/configuration)), the viewer draws one connected machine: here the arm rides on the rail carriage and each link runs from joint to joint. Needs engine API 1.1 or newer.
 - **Separate axes.** Without geometry, each axis is drawn on its own — a revolute arm or a prismatic rail — and the legend says why. The viewer never guesses how axes are mounted.
+- It works for any serial chain. A simulated six-axis desktop arm (MotionCore's `robot-profiles/dummy-arm-virtual.toml`):
+
+  ![3D Viewer: a six-axis desktop arm in a working pose](/screenshots/dummy-arm-pose.png)
+
+  ![Motion screen with six joint cards for the same arm](/screenshots/dummy-arm-motion.png)
+
+- **Move from the view.** Click a joint (or its row in the legend) to select it: a yellow ring marks it and a panel opens with jog buttons and a target. Drag the selected joint, or use the slider or number field, to **preview** a target — an amber copy of the robot shows the pose. **Nothing is sent while you drag.** Press **Move** to send one absolute move; the same rules as the Motion screen apply (operator role, live data, robot ready, axis homed, target within the soft limits, which the drag stops at). Esc deselects.
+- **Collision warning.** When the profile gives its links a thickness (`radius`), the engine refuses moves that would make the robot collide with itself or reach the floor once all axes are homed. The viewer runs the same check on the preview: a move that would collide turns the preview **red**, names the links and the joint value where they would meet, and disables **Move**. The engine checks again and has the final word.
+
+  ![A wrist preview that would fold into the base: red preview and the collision message](/screenshots/viewer-collision.png)
+
+  ![Dragging the shoulder joint: amber preview pose, joint panel with Move button](/screenshots/viewer-drag.png)
+
 - Links are schematic cylinders, not CAD meshes. The camera frames the robot when the view opens; drag to orbit, wheel to zoom, right-drag to pan.
 
 three.js is loaded lazily as its own chunk, so the viewer costs nothing until you open it.
