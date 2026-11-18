@@ -4,9 +4,10 @@ import { useEngine, usePermissions, useTelemetry } from "../../hooks/useEngine";
 import { useCommand } from "../../hooks/useCommand";
 import { Empty, Led, StateBadge, fmt } from "../../components/common";
 import { ConfirmButton } from "../../components/ConfirmButton";
-import { allowed, mergeAxes, type MergedAxis } from "./axes";
+import { allowed, apiAtLeast, mergeAxes, type MergedAxis } from "./axes";
 import { homeableAxes } from "../../hooks/homeAll";
 import { homeAll, useHomeAll } from "../../hooks/useHomeAll";
+import { MoveJPanel } from "./MoveJPanel";
 
 const NEEDS_OPERATOR = "Requires the operator role";
 
@@ -105,12 +106,14 @@ export function MotionControl() {
         <Empty>No axes reported yet. Waiting for configuration / telemetry…</Empty>
       ) : (
         <>
-          {axes.length > 1 && (
-            <div className="note small">
-              Each command moves one axis. Coordinated multi-axis moves are not provided by the engine yet, so axes are not synchronised with each
-              other.
-            </div>
-          )}
+          {axes.length > 1 &&
+            (apiAtLeast(s.info?.engine?.api_version, 0, 2) ? (
+              <MoveJPanel />
+            ) : (
+              <div className="note small">
+                Each command moves one axis. Coordinated joint moves need engine API 0.2 or newer, so axes are not synchronised with each other.
+              </div>
+            ))}
         <div className="axis-grid">
           {axes.map(({ cfg, tel, id }) => (
             <AxisCard key={id} id={id} cfg={cfg} tel={tel} state={state} online={online && perms.command} />

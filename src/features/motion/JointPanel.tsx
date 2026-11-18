@@ -1,10 +1,11 @@
 import { useState } from "react";
 import type { AxisConfig, AxisTelemetry } from "../../types/api";
-import { usePermissions, useTelemetry } from "../../hooks/useEngine";
+import { useEngine, usePermissions, useTelemetry } from "../../hooks/useEngine";
 import { useCommand } from "../../hooks/useCommand";
 import { fmt } from "../../components/common";
 import { allowed } from "./axes";
 import type { Contact } from "./kinematics";
+import { SPEEDS, jointMoveBlocker, sendJointMove, type JointTargets } from "./jointMove";
 
 const STEPS = [0.1, 1, 10] as const;
 
@@ -16,50 +17,61 @@ export interface JointPanelProps {
   preview: number | null;
   onPreview: (value: number | null) => void;
   onClose: () => void;
-  /** First collision on the way to the preview target (engine's model), if any. */
+  /** First collision on the way to the previewed pose (engine's model), if any. */
   contact?: Contact | null;
+  /** Targets previewed on other joints; Move sends them together with this one. */
+  others?: JointTargets;
+  /** Clears every previewed joint. */
+  onClearAll?: () => void;
 }
 
 /**
  * Controls for the joint selected in the 3D viewer: jog, a preview target
- * (dragged in the view or set here) and an explicit Move. Uses the same
- * commands and the same rules as the Motion screen; the engine validates
- * everything again.
+ * (dragged in the view or set here) and an explicit Move. Targets previewed
+ * on several joints are sent as one coordinated joint move (move_j): every
+ * joint starts and finishes together. Same rules as the Motion screen; the
+ * engine validates everything again.
  */
-export function JointPanel({ id, cfg, tel, preview, onPreview, onClose, contact = null }: JointPanelProps) {
+export function JointPanel({ id, cfg, tel, preview, onPreview, onClose, contact = null, others = {}, onClearAll }: JointPanelProps) {
   const run = useCommand();
   const perms = usePermissions();
-  const { online, state } = useTelemetry();
+  const s = useEngine();
+  const { online, state, telemetry } = useTelemetry();
   const [step, setStep] = useState<number>(1);
+  const [speed, setSpeed] = useState<number>(1);
   const [draft, setDraft] = useState<string | null>(null);
 
   const unit = cfg?.unit ?? "";
   const measured = tel?.measured_position ?? null;
-  const homed = tel?.homed ?? false;
   const value = preview ?? measured ?? 0;
-  const inLimits = !cfg || (value >= cfg.min && value <= cfg.max);
   const canCommand = online && perms.command;
   const canJog = canCommand && allowed.jog(state);
   const hasPreview = preview !== null && measured !== null && Math.abs(preview - measured) > 1e-9;
-  const canMove = canCommand && allowed.move_to(state) && homed && hasPreview && inLimits && contact === null;
-
-  let why: string | null = null;
-  if (!online) why = "Live data required.";
-  else if (!perms.command) why = "Requires the operator role.";
-  else if (!homed) why = "Home this axis first (Motion screen) to move to an absolute target.";
-  else if (!inLimits) why = `Target outside the soft limits [${cfg?.min}, ${cfg?.max}] ${unit}.`;
-  else if (contact) {
-    const at = contact.at[id];
-    why =
-      contact.b === "floor"
-        ? `Would hit the floor (link of ${contact.a}) when ${id} reaches ${fmt(at, 1)} ${unit}; the engine refuses this move.`
-        : `Would collide: links of ${contact.a} and ${contact.b} when ${id} reaches ${fmt(at, 1)} ${unit}; the engine refuses this move.`;
-  }
-  else if (!allowed.move_to(state)) why = `Robot is ${state.replace("_", " ")}; it must be ready.`;
+  const otherIds = Object.keys(others).filter((o) => o !== id);
+  const targets: JointTargets = { ...Object.fromEntries(otherIds.map((o) => [o, others[o]!])), ...(hasPreview ? { [id]: preview! } : {}) };
+  const count = Object.keys(targets).length;
+  const why =
+    count === 0
+      ? null
+      : jointMoveBlocker({
+          targets,
+          axes: s.config?.axes ?? (cfg ? [cfg] : []),
+          // This panel's own axis data wins for the selected joint.
+          telemetry: telemetry && tel ? { ...telemetry, axes: telemetry.axes.map((a) => (a.id === id ? tel : a)) } : telemetry,
+          online,
+          canCommand: perms.command,
+          state,
+          apiVersion: s.info?.engine?.api_version,
+          contact,
+        });
+  const canMove = count > 0 && why === null;
 
   const move = async () => {
-    if (!canMove || preview === null) return;
-    if (await run("move_to", { axis: id, position: preview })) onPreview(null);
+    if (!canMove) return;
+    if (await sendJointMove(run, targets, speed, s.config?.axes ?? (cfg ? [cfg] : []))) {
+      onPreview(null);
+      onClearAll?.();
+    }
   };
 
   const commitDraft = () => {
@@ -139,19 +151,41 @@ export function JointPanel({ id, cfg, tel, preview, onPreview, onClose, contact 
           aria-label={`Target value for ${id}`}
         />
         <button className="btn btn-primary" disabled={!canMove} onClick={() => void move()}>
-          Move{hasPreview ? ` to ${fmt(preview)}` : ""}
+          {count > 1 ? `Move ${count} joints together` : `Move${hasPreview ? ` to ${fmt(preview)}` : ""}`}
         </button>
         <button className="btn" disabled={!hasPreview} onClick={() => onPreview(null)}>
           Clear
         </button>
       </div>
-      {why && hasPreview && (
+      {otherIds.length > 0 && (
+        <div className="small pose-others">
+          <span className="muted">Also previewed: </span>
+          <span className="mono preview-text">{otherIds.map((o) => `${o} → ${fmt(others[o])}`).join(", ")}</span>{" "}
+          <button className="btn btn-small" onClick={() => onClearAll?.()}>
+            Clear all
+          </button>
+        </div>
+      )}
+      {count > 0 && (
+        <div className="speed-row small">
+          <span className="muted">Speed</span>
+          <div className="seg" role="radiogroup" aria-label="Move speed">
+            {SPEEDS.map((v) => (
+              <button key={v} role="radio" aria-checked={speed === v} className={`seg-btn ${speed === v ? "active" : ""}`} onClick={() => setSpeed(v)}>
+                {v * 100}%
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      {why && count > 0 && (
         <div className={`small ${contact ? "err-text" : "warn-text"}`} role={contact ? "alert" : undefined}>
           {why}
         </div>
       )}
       <div className="muted small">
-        Drag the selected joint in the view or use the slider to preview a target (amber). Nothing moves until you press Move.
+        Drag the selected joint in the view or use the slider to preview a target (amber). Preview several joints to move them together. Nothing moves
+        until you press Move.
       </div>
     </section>
   );

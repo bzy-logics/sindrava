@@ -13,6 +13,14 @@ export function mergeAxes(cfg: AxisConfig[] | null, tel: AxisTelemetry[]): Merge
   return out;
 }
 
+/** True when the engine's API version (e.g. "0.2.0") is at least major.minor. */
+export function apiAtLeast(version: string | null | undefined, major: number, minor: number): boolean {
+  const m = /^(\d+)\.(\d+)/.exec(version ?? "");
+  if (!m) return false;
+  const [a, b] = [Number(m[1]), Number(m[2])];
+  return a > major || (a === major && b >= minor);
+}
+
 /** Which commands the UI offers in each robot state (the engine still validates). E-STOP is always allowed. */
 export const allowed = {
   enable: (s: RobotState) => s === "disabled",
@@ -21,5 +29,6 @@ export const allowed = {
   jog: (s: RobotState) => s === "ready",
   home: (s: RobotState) => s === "ready",
   move_to: (s: RobotState) => s === "ready",
+  move_j: (s: RobotState) => s === "ready",
   reset_fault: (s: RobotState) => s === "faulted" || s === "emergency_stopped",
 };

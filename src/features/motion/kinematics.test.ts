@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import * as THREE from "three";
 import type { AxisConfig, AxisGeometry } from "../../types/api";
-import { COLLISION_MARGIN_MM, checkSweep, clearance, forwardKinematics, hasCollisionModel, kinematicTree, mul, position, rpy, segmentDistance, translate, type Vec3 } from "./kinematics";
+import { COLLISION_MARGIN_MM, checkPath, checkSweep, clearance, forwardKinematics, hasCollisionModel, kinematicTree, mul, position, rpy, segmentDistance, translate, type Vec3 } from "./kinematics";
 import { applyPose, axisOf, buildChain, dragDelta } from "./scene";
 
 function axis(id: string, kind: AxisConfig["kind"], geometry: Partial<AxisGeometry> | null, min = -180, max = 180): AxisConfig {
@@ -223,5 +223,16 @@ describe("collision model (same as the engine)", () => {
     expect(clearance(arm(), into)!.gap).toBeLessThan(COLLISION_MARGIN_MM);
     expect(checkSweep(arm(), into, "j5", 0)).toBeNull();
     expect(checkSweep(arm(), into, "j5", 40)).not.toBeNull();
+  });
+
+  it("checks the straight joint-space path of a multi-joint move (as the engine does)", () => {
+    // Both ends are well clear; the path swings the flange through the base.
+    const a = q(-120, 20, 180, 130, 80, -10);
+    const b = { j1: 150, j2: -35, j3: 150, j4: -145, j5: 60, j6: 465 };
+    expect(clearance(arm(), a)!.gap).toBeGreaterThan(10);
+    expect(clearance(arm(), { ...a, ...b })!.gap).toBeGreaterThan(10);
+    const c = checkPath(arm(), a, b)!;
+    expect([c.a, c.b]).toEqual(["j1", "j6"]);
+    expect(checkPath(arm(), q(0, 0, 0, 0, 0, 0), { j1: 35, j3: 90, j4: 30, j5: -50, j6: 90 })).toBeNull();
   });
 });

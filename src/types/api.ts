@@ -291,6 +291,8 @@ export interface CommandParams {
   move_to: { axis: string; position: number; velocity?: number };
   home: { axis: string };
   home_all: NoParams;
+  /** Coordinated joint move (engine-api >= 0.2): listed axes start and finish together. */
+  move_j: { targets: Record<string, number>; speed_scale?: number };
 }
 
 export type CommandName = keyof CommandParams;

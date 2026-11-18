@@ -241,17 +241,32 @@ export function clearance(axes: AxisConfig[], q: Record<string, number>): Contac
 
 /**
  * First pose with less than the margin when moving `id` from q[id] to `to`
- * (others held still), or null when the move is clear. Moves that never get
- * worse than the start are allowed, as in the engine.
+ * (others held still), or null when the move is clear.
  */
 export function checkSweep(axes: AxisConfig[], q: Record<string, number>, id: string, to: number): Contact | null {
+  return checkPath(axes, q, { [id]: to });
+}
+
+/**
+ * First pose with less than the margin on the straight joint-space line from
+ * `q` to `q` with `targets` applied (the path of a MoveJ: every listed joint
+ * moves at once, the others hold), or null when the path is clear. Checked
+ * every 0.5° / 1 mm of the joint that moves furthest. Moves that never get
+ * worse than the start are allowed, as in the engine.
+ */
+export function checkPath(axes: AxisConfig[], q: Record<string, number>, targets: Record<string, number>): Contact | null {
   const start = clearance(axes, q);
   if (!start) return null;
-  const from = q[id] ?? 0;
-  const prismatic = axes.find((a) => a.id === id)?.kind === "prismatic";
-  const n = Math.min(10_000, Math.max(1, Math.ceil(Math.abs(to - from) / (prismatic ? 1 : 0.5))));
+  const ids = Object.keys(targets);
+  const from = Object.fromEntries(ids.map((id) => [id, q[id] ?? 0]));
+  const n = Math.min(
+    10_000,
+    Math.max(1, Math.ceil(Math.max(0, ...ids.map((id) => Math.abs(targets[id]! - from[id]!) / (axes.find((a) => a.id === id)?.kind === "prismatic" ? 1 : 0.5))))),
+  );
   for (let k = 1; k <= n; k++) {
-    const c = clearance(axes, { ...q, [id]: from + ((to - from) * k) / n })!;
+    const pose = { ...q };
+    for (const id of ids) pose[id] = from[id]! + ((targets[id]! - from[id]!) * k) / n;
+    const c = clearance(axes, pose)!;
     if (c.gap < COLLISION_MARGIN_MM && c.gap < start.gap - 1e-6) return c;
   }
   return null;
