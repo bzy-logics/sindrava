@@ -2,7 +2,7 @@
 
 All notable changes to sindrava, the MotionCore operator UI. Validation levels follow MotionCore's: *implemented*, *simulated* (against the engine's virtual MCU), *software-tested* (automated tests in CI), *hardware-validated*. sindrava holds no robot logic; the engine validates every command (see [MotionCore's changelog](https://github.com/bzy-logics/motioncore/blob/main/CHANGELOG.md)).
 
-## [0.3.0] — unreleased
+## [0.3.0] — 2026-11-19
 
 The first sindrava release, part of the MotionCore v0.3.0 baseline. The version jumps from 0.1.0 so that all three repositories share the baseline number.
 
