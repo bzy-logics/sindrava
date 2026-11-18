@@ -1,6 +1,6 @@
 // "Home all".
 //
-// * Engine plan (engine-api >= 1.2): one `home_all` command; the engine homes
+// * Engine plan (engine-api >= 0.1.4): one `home_all` command; the engine homes
 //   the axes of each group at the same time, groups in order, as designed in
 //   the robot profile. This only follows the progress in telemetry.
 // * Fallback (older engines): homes every homeable axis one after the other,

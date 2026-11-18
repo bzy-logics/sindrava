@@ -16,7 +16,7 @@ Robot name and profile, robot state, the active fault and derived alarms, an MCU
 
 - **Enable / Disable / Stop** and **Reset fault**.
 - Per axis: **jog** (relative), **home**, and **absolute move** — absolute only for homed axes.
-- **Home all**: homes every axis that has a homing configuration. With engine API 1.2 or newer, the engine runs the robot profile's home-all plan: the axes of one step home **at the same time**, and the steps run in order. The confirmation lists the steps and the start pose the plan was designed for: joint positions are unknown until each switch triggers, so no software can check these paths — make sure the robot is in that pose. Progress shows as *Homing j4, j5, j6 (1/2)…* with a **Cancel** button (sends Stop). It stops at the first fault, emergency stop or loss of live data and says where; it keeps running if you switch screens. With older engines, sindrava homes the axes one after the other in profile order, each an ordinary home command.
+- **Home all**: homes every axis that has a homing configuration. With engine API 0.1.4 or newer, the engine runs the robot profile's home-all plan: the axes of one step home **at the same time**, and the steps run in order. The confirmation lists the steps and the start pose the plan was designed for: joint positions are unknown until each switch triggers, so no software can check these paths — make sure the robot is in that pose. Progress shows as *Homing j4, j5, j6 (1/2)…* with a **Cancel** button (sends Stop). It stops at the first fault, emergency stop or loss of live data and says where; it keeps running if you switch screens. With older engines, sindrava homes the axes one after the other in profile order, each an ordinary home command.
 
   ![Home all confirmation: two steps of three axes each, and the start pose to check](/screenshots/home-all-plan.png)
 - **Soft-limit bars** showing commanded vs. measured position within `[min, max]`.
@@ -31,7 +31,7 @@ The robot in 3D: measured pose drawn solid, planned (commanded) pose as a transl
 
 ![3D Viewer: a two-link arm mounted on the carriage of a linear rail](/screenshots/viewer.png)
 
-- **Connected robot.** When the robot profile describes how the joints are mounted (`[axis.geometry]`: parent joint, offset, rotation, joint axis — see [MotionCore: configuration](https://motioncore.bzy-logics.com/guide/configuration)), the viewer draws one connected machine: here the arm rides on the rail carriage and each link runs from joint to joint. Needs engine API 1.1 or newer.
+- **Connected robot.** When the robot profile describes how the joints are mounted (`[axis.geometry]`: parent joint, offset, rotation, joint axis — see [MotionCore: configuration](https://motioncore.bzy-logics.com/guide/configuration)), the viewer draws one connected machine: here the arm rides on the rail carriage and each link runs from joint to joint. Needs engine API 0.1.3 or newer.
 - **Separate axes.** Without geometry, each axis is drawn on its own — a revolute arm or a prismatic rail — and the legend says why. The viewer never guesses how axes are mounted.
 - It works for any serial chain. A simulated six-axis desktop arm (MotionCore's `robot-profiles/dummy-arm-virtual.toml`):
 

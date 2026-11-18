@@ -113,7 +113,7 @@ export interface AxisTelemetry {
   measured_position: number;
   velocity: number;
   endstop: boolean;
-  /** True while this axis is homing (engine-api >= 1.2). */
+  /** True while this axis is homing (engine-api >= 0.1.4). */
   homing?: boolean;
 }
 
@@ -155,7 +155,7 @@ export interface AxisConfig {
   dir_pin: string;
   enable_pin: string;
   endstop_pin: string | null;
-  /** Kinematic placement; null without geometry, absent on engine-api < 1.1. */
+  /** Kinematic placement; null without geometry, absent on engine-api < 0.1.3. */
   geometry?: AxisGeometry | null;
 }
 
@@ -173,7 +173,7 @@ export interface AxisGeometry {
   axis: [number, number, number];
   /** End of this joint's link (e.g. tool flange) in its joint frame, mm; null if not configured. */
   tip_mm: [number, number, number] | null;
-  /** Link radius of the collision model, mm (engine-api >= 1.2). */
+  /** Link radius of the collision model, mm (engine-api >= 0.1.4). */
   radius_mm?: number | null;
 }
 
@@ -182,9 +182,9 @@ export interface RobotConfig {
   profile: string;
   mcus: McuConfig[];
   axes: AxisConfig[];
-  /** How the home_all command proceeds; null/absent with engine-api < 1.2. */
+  /** How the home_all command proceeds; null/absent with engine-api < 0.1.4. */
   home_all?: HomeAllPlan | null;
-  /** True when the engine refuses moves that would collide (engine-api >= 1.2). */
+  /** True when the engine refuses moves that would collide (engine-api >= 0.1.4). */
   collision_checking?: boolean;
 }
 

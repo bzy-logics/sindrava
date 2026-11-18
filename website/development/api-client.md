@@ -46,7 +46,7 @@ try {
 
 - **Never synthesise robot state.** Display only what telemetry and configuration report.
 - **A command response is acceptance, not completion.** Wait for telemetry.
-- **Tolerate unknown enum values.** A newer 1.x engine may send `"unknown"`, and `"unspecified"` is possible.
+- **Tolerate unknown enum values.** A newer engine with the same `0.MINOR` may send `"unknown"`, and `"unspecified"` is possible.
 - **Treat nulls as "not set".** Optional fields are always present, as `null` when unset.
 - **Permissions are a hint.** If `/api/session` is unavailable (ratavyr < 0.3), all permissions are treated as unknown/allowed and the server decides.
 

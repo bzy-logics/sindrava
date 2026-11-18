@@ -259,7 +259,7 @@ function HomeAllButton() {
   const ids = homeableAxes(s.config?.axes);
   const skipped = (s.config?.axes.length ?? 0) - ids.length;
   const busy = ha.kind === "running";
-  // engine-api >= 1.2: the engine runs the profile's plan (groups together).
+  // engine-api >= 0.1.4: the engine runs the profile's plan (groups together).
   const plan = s.config?.home_all ?? null;
   const groups = plan ? plan.groups.filter((g) => g.length > 0) : [];
   const total = plan ? groups.flat().length : ids.length;
