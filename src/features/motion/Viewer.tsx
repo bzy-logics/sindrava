@@ -117,7 +117,7 @@ function disposeTree(obj: THREE.Object3D) {
 
 /**
  * 3D view: measured pose solid, planned (commanded) pose as a translucent
- * ghost. With geometry in the robot profile (engine-api >= 1.1) the axes are
+ * ghost. With geometry in the robot profile (engine-api >= 0.1.3) the axes are
  * drawn as one connected robot; without it each axis is shown on its own,
  * because the viewer must not invent how they are mounted. Lazy-loaded (three.js).
  */

@@ -1,4 +1,4 @@
-// Kinematic tree from the engine's axis geometry (engine-api >= 1.1), and a
+// Kinematic tree from the engine's axis geometry (engine-api >= 0.1.3), and a
 // small dependency-free forward-kinematics implementation of its URDF-style
 // convention:
 //
