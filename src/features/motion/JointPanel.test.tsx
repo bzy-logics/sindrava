@@ -28,7 +28,7 @@ const cfg: AxisConfig = {
   geometry: null,
 };
 
-const tel = (homed: boolean): AxisTelemetry => ({ id: "j2", homed, enabled: true, commanded_position: 10, measured_position: 10, velocity: 0, endstop: false });
+const tel = (homed: boolean, id = "j2"): AxisTelemetry => ({ id, homed, enabled: true, commanded_position: 10, measured_position: 10, velocity: 0, endstop: false });
 
 function setLive(state: RobotState, session: Session | null = null) {
   act(() => {
@@ -151,5 +151,31 @@ describe("JointPanel collision warning", () => {
     render(<H />);
     expect(button(/^Move/).disabled).toBe(true);
     expect(screen.getByRole("alert").textContent).toMatch(/Would collide: links of j2 and j6 when j2 reaches 37\.5 deg; the engine refuses this move/);
+  });
+});
+
+describe("JointPanel with several previewed joints", () => {
+  it("moves every previewed joint together with one move_j", async () => {
+    setLive("ready");
+    act(() => {
+      (live as unknown as { set: (p: Partial<LiveState>) => void }).set({
+        info: { engine: { api_version: "0.2.0" } } as LiveState["info"],
+        telemetry: { seq: 2, time_ms: 0, state: "ready", fault: null, mcu: {} as never, axes: [tel(true, "j1"), tel(true)] },
+      });
+    });
+    const cmd = vi.spyOn(api, "command").mockResolvedValue({});
+    const cleared = vi.fn();
+    function H() {
+      const [preview, setPreview] = useState<number | null>(45);
+      return <JointPanel id="j2" cfg={cfg} tel={tel(true)} preview={preview} onPreview={setPreview} onClose={() => {}} others={{ j1: 30 }} onClearAll={cleared} />;
+    }
+    render(<H />);
+    expect(screen.getByText("j1 → 30.00")).toBeTruthy();
+    fireEvent.click(screen.getByRole("radio", { name: "50%" }));
+    await act(async () => {
+      fireEvent.click(button("Move 2 joints together"));
+    });
+    expect(cmd).toHaveBeenCalledWith("move_j", { targets: { j1: 30, j2: 45 }, speed_scale: 0.5 });
+    expect(cleared).toHaveBeenCalled();
   });
 });

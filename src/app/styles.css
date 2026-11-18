@@ -1369,3 +1369,28 @@ td.actions {
   flex-direction: column;
   gap: 4px;
 }
+
+/* Coordinated joint move */
+.movej-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.movej-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.movej-cell input {
+  width: 100%;
+}
+.speed-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0;
+}
+.pose-others {
+  margin: 4px 0;
+}

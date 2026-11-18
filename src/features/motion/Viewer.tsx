@@ -6,7 +6,8 @@ import { live } from "../../hooks/liveStore";
 import { useEngine } from "../../hooks/useEngine";
 import { fmt } from "../../components/common";
 import { mergeAxes } from "./axes";
-import { checkSweep, kinematicTree, type Contact } from "./kinematics";
+import { kinematicTree, type Contact } from "./kinematics";
+import { pathContact, type JointTargets } from "./jointMove";
 import { applyPose, axisOf, buildChain, dragDelta, type Chain } from "./scene";
 import { JointPanel } from "./JointPanel";
 
@@ -131,30 +132,28 @@ export default function Viewer() {
     .map((a) => `${a.id}:${a.cfg?.kind ?? "?"}:${a.cfg?.min ?? ""}:${a.cfg?.max ?? ""}:${JSON.stringify(a.cfg?.geometry ?? null)}`)
     .join("|");
 
-  // Joint selected in the view, and its previewed target. The render loop
-  // and pointer handlers read them through refs.
+  // Joint selected in the view, and the previewed pose: a target per joint
+  // the operator has moved (several joints move together, as one MoveJ).
+  // The render loop and pointer handlers read them through refs.
   const [selected, setSelected] = useState<string | null>(null);
-  const [preview, setPreview] = useState<number | null>(null);
+  const [pose, setPose] = useState<JointTargets>({});
   const selectedRef = useRef(selected);
-  const previewRef = useRef(preview);
+  const poseRef = useRef(pose);
   selectedRef.current = selected;
-  previewRef.current = preview;
+  poseRef.current = pose;
+  const setTarget = (id: string, v: number | null) =>
+    setPose((p) => {
+      const { [id]: _, ...rest } = p;
+      return v === null ? rest : { ...rest, [id]: v };
+    });
 
-  // Collision check of the previewed move, with the engine's model; only
-  // when the engine checks too (every axis homed, link radii configured).
+  // Collision check of the previewed move (straight joint-space path), with
+  // the engine's model; only when the engine checks too.
   const commandedKey = (s.telemetry?.axes ?? []).map((a) => `${a.id}=${a.commanded_position.toFixed(3)}:${a.homed}`).join("|");
-  const contact: Contact | null = useMemo(() => {
-    const t = s.telemetry;
-    if (!selected || preview === null || !s.config?.collision_checking || !t || !t.axes.every((a) => a.homed)) return null;
-    const q = Object.fromEntries(t.axes.map((a) => [a.id, a.commanded_position]));
-    return checkSweep(s.config.axes, q, selected, preview);
-  }, [selected, preview, commandedKey, s.config]);
+  const contact: Contact | null = useMemo(() => pathContact(s.config, s.telemetry, pose), [pose, commandedKey, s.config]);
   const contactRef = useRef(contact);
   contactRef.current = contact;
-  const select = (id: string | null) => {
-    setSelected(id);
-    setPreview(null);
-  };
+  const select = (id: string | null) => setSelected(id);
   useEffect(() => {
     if (selected && !axes.some((a) => a.id === selected)) select(null);
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && select(null);
@@ -247,7 +246,7 @@ export default function Viewer() {
       const id = pick(e);
       down = { x: e.clientX, y: e.clientY, id };
       const sel = selectedRef.current;
-      const base = sel ? (previewRef.current ?? measuredOf(sel)) : null;
+      const base = sel ? (poseRef.current[sel] ?? measuredOf(sel)) : null;
       if (chains && id !== null && id === sel && base !== null) {
         drag = { id, last: rayAt(e), value: base };
         controls.enabled = false;
@@ -262,7 +261,7 @@ export default function Viewer() {
           const cfg = chains.measured.joints.get(drag.id)!.cfg;
           drag.value = Math.min(cfg.max, Math.max(cfg.min, drag.value + d));
           drag.last = now;
-          setPreview(Math.round(drag.value * 100) / 100);
+          setTarget(drag.id, Math.round(drag.value * 100) / 100);
         }
         return;
       }
@@ -308,10 +307,11 @@ export default function Viewer() {
         applyPose(chains.measured, measuredPose);
         applyPose(chains.commanded, Object.fromEntries(tel.axes.map((a) => [a.id, a.commanded_position])));
         const sel = selectedRef.current;
-        const pv = previewRef.current;
-        chains.preview.root.visible = sel !== null && pv !== null;
+        const pv = poseRef.current;
+        const previewing = Object.keys(pv).length > 0;
+        chains.preview.root.visible = previewing;
         previewMat.color.setHex(contactRef.current ? 0xff4d4d : 0xffb547);
-        if (sel !== null && pv !== null) applyPose(chains.preview, { ...measuredPose, [sel]: pv });
+        if (previewing) applyPose(chains.preview, { ...measuredPose, ...pv });
         if (sel !== ringOn) {
           ringOn = sel;
           ring.removeFromParent();
@@ -399,10 +399,16 @@ export default function Viewer() {
             title="Select this joint"
           >
             {a.id}: {fmt(a.tel?.measured_position)} / {fmt(a.tel?.commanded_position)} {a.cfg?.unit ?? ""}
+            {pose[a.id] !== undefined && <span className="preview-text"> → {fmt(pose[a.id])}</span>}
           </button>
         ))}
+        {Object.keys(pose).length > 0 && (
+          <button className="btn btn-small" onClick={() => setPose({})}>
+            Clear preview ({Object.keys(pose).length} {Object.keys(pose).length === 1 ? "joint" : "joints"})
+          </button>
+        )}
         <div className="muted small">
-          {tree?.ok ? "Click a joint to select it, then drag it to preview a move. " : "Select a joint above. "}
+          {tree?.ok ? "Click a joint to select it, then drag it to preview a move; preview several joints to move them together. " : "Select a joint above. "}
           Drag elsewhere to orbit · wheel to zoom · right-drag to pan · Esc to deselect
         </div>
       </div>
@@ -411,10 +417,12 @@ export default function Viewer() {
           id={selected}
           cfg={axes.find((a) => a.id === selected)?.cfg ?? null}
           tel={axes.find((a) => a.id === selected)?.tel ?? null}
-          preview={preview}
-          onPreview={setPreview}
+          preview={pose[selected] ?? null}
+          onPreview={(v) => setTarget(selected, v)}
           onClose={() => select(null)}
           contact={contact}
+          others={pose}
+          onClearAll={() => setPose({})}
         />
       )}
     </div>
