@@ -8,6 +8,8 @@ import { allowed, apiAtLeast, mergeAxes, type MergedAxis } from "./axes";
 import { homeableAxes } from "../../hooks/homeAll";
 import { homeAll, useHomeAll } from "../../hooks/useHomeAll";
 import { MoveJPanel } from "./MoveJPanel";
+import { CartesianPanel } from "./CartesianPanel";
+import { PathPanel } from "./PathPanel";
 
 const NEEDS_OPERATOR = "Requires the operator role";
 
@@ -108,7 +110,15 @@ export function MotionControl() {
         <>
           {axes.length > 1 &&
             (apiAtLeast(s.info?.engine?.api_version, 0, 2) ? (
-              <MoveJPanel />
+              <>
+                <MoveJPanel />
+                {apiAtLeast(s.info?.engine?.api_version, 0, 3) && (
+                  <>
+                    <CartesianPanel />
+                    <PathPanel />
+                  </>
+                )}
+              </>
             ) : (
               <div className="note small">
                 Each command moves one axis. Coordinated joint moves need engine API 0.2 or newer, so axes are not synchronised with each other.

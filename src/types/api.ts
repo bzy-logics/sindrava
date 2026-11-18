@@ -124,6 +124,15 @@ export interface Telemetry {
   fault: Fault | null;
   mcu: McuStatus;
   axes: AxisTelemetry[];
+  /** Tool point of a serial-chain robot (engine-api >= 0.3); null otherwise (then move_l is unavailable). */
+  tool?: ToolPose | null;
+}
+
+export interface ToolPose {
+  /** Base frame, mm. */
+  position_mm: [number, number, number];
+  /** Roll, pitch, yaw in degrees: R = Rz(yaw)·Ry(pitch)·Rx(roll). */
+  rotation_deg: [number, number, number];
 }
 
 // ---------------------------------------------------------------- config
@@ -293,6 +302,15 @@ export interface CommandParams {
   home_all: NoParams;
   /** Coordinated joint move (engine-api >= 0.2): listed axes start and finish together. */
   move_j: { targets: Record<string, number>; speed_scale?: number };
+  /** Blended joint path (engine-api >= 0.3): through the waypoints without stopping. */
+  move_j_path: { waypoints: Record<string, number>[]; speed_scale?: number };
+  /** Cartesian straight line of the tool point (engine-api >= 0.3). */
+  move_l: {
+    position_mm: [number, number, number];
+    rotation_deg?: [number, number, number];
+    speed_mm_s?: number;
+    speed_scale?: number;
+  };
 }
 
 export type CommandName = keyof CommandParams;

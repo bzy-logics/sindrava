@@ -23,6 +23,6 @@ These mostly need new engine functionality first:
 
 - **Robot Composer is read-only.** The engine has no configuration editing or validation API; robot profiles are TOML files loaded when the engine starts.
 - **3D viewer** shows each axis as its own joint (revolute arm or prismatic rail). An articulated kinematic chain needs link geometry the engine does not expose yet.
-- **Joint-space moves only** and no planned-trajectory preview: `move_j` moves several joints together, but there are no Cartesian moves. Commanded vs. measured position is shown per axis.
+- **No planned-trajectory preview** for paths and Cartesian lines: the engine plans them; the viewer shows the measured and commanded pose. Taught paths live in the browser tab only (not saved).
 - **Firmware verify** (running build vs. artifact) is CLI-only in the engine.
 - **One MCU per robot** in telemetry (engine-api v1).
