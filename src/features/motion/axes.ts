@@ -30,5 +30,7 @@ export const allowed = {
   home: (s: RobotState) => s === "ready",
   move_to: (s: RobotState) => s === "ready",
   move_j: (s: RobotState) => s === "ready",
+  move_j_path: (s: RobotState) => s === "ready",
+  move_l: (s: RobotState) => s === "ready",
   reset_fault: (s: RobotState) => s === "faulted" || s === "emergency_stopped",
 };

@@ -119,7 +119,7 @@ requires one. `/api/info` reports `auth_required`; `/api/session` reports the to
 | Tab | Contents |
 |---|---|
 | Overview | Robot name/profile, state, active fault + derived alarms, MCU health summary, axis summary |
-| Motion | Enable/Disable/Stop, Reset Fault, Home all (the engine's home-all plan, axes of a step together; confirmed with steps and start pose; cancellable; sequential with engines before API 0.1.4), per-axis jog/home/absolute move (homed axes only), soft-limit bars with commanded vs. measured position. **Joint move** panel (engine-api ≥ 0.2): targets for any joints, speed 25/50/100 %, one coordinated `move_j` in which they start and finish together |
+| Motion | Enable/Disable/Stop, Reset Fault, Home all (the engine's home-all plan, axes of a step together; confirmed with steps and start pose; cancellable; sequential with engines before API 0.1.4), per-axis jog/home/absolute move (homed axes only), soft-limit bars with commanded vs. measured position. **Joint move** panel (engine-api ≥ 0.2): targets for any joints, speed 25/50/100 %, one coordinated `move_j` in which they start and finish together. With engine-api ≥ 0.3: **Cartesian move** (live tool pose; straight `move_l` to X/Y/Z, orientation kept or set; serial-chain robots only) and **Joint path** (teach waypoints from the current pose, run them as one blended `move_j_path` without stops) |
 | 3D Viewer | Click a joint to select it, drag it to preview a target (amber, nothing sent), press Move to send it; jog buttons in the joint panel. Preview several joints and Move sends them as one coordinated `move_j` (engine-api ≥ 0.2), at the chosen speed. Previews that would make the robot collide with itself turn red and cannot be sent (profiles with link `radius`, engine-api ≥ 0.1.4; the engine checks again). Connected robot from the profile's `[axis.geometry]` (parent joints, offsets, joint axes; engine-api ≥ 0.1.3), or each axis on its own when the profile has no geometry. Measured pose solid, commanded pose as ghost; camera framed on the robot; lazy-loaded (three.js is its own chunk) |
 | Robot | Read-only RobotConfig: MCUs, axes, limits, actuator, pins |
 | Composer | Read-only device graph Robot → MCU → channel → axis → driver (actuator, step/dir/enable) + endstop. Editing comes later |
@@ -156,8 +156,8 @@ end-to-end test against freshly built motioncore and ratavyr.
 - **3D viewer** draws a connected robot only when the robot profile defines geometry for every axis
   (`[axis.geometry]`, engine-api ≥ 0.1.3). Otherwise each axis is shown on its own, because how the axes
   are mounted is unknown. Link shapes are schematic (cylinders between joints); there are no meshes.
-- **Joint-space moves only** and no planned-trajectory preview: several joints move together with `move_j`, but there are no Cartesian moves.
-  Commanded vs. measured position is shown per axis.
+- **No planned-trajectory preview** for paths and Cartesian lines: the engine plans them; the viewer shows the
+  measured and commanded pose. Taught paths live in the browser tab only (not saved).
 - **Firmware verify** (running build vs. artifact) is CLI-only in the engine.
 - One MCU per robot in telemetry (engine-api v1).
 

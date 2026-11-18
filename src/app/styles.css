@@ -1394,3 +1394,12 @@ td.actions {
 .pose-others {
   margin: 4px 0;
 }
+
+/* Cartesian move and joint path */
+.tool-pose {
+  margin-bottom: 8px;
+}
+.path-table td,
+.path-table th {
+  padding: 3px 8px;
+}

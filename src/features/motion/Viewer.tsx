@@ -402,6 +402,11 @@ export default function Viewer() {
             {pose[a.id] !== undefined && <span className="preview-text"> → {fmt(pose[a.id])}</span>}
           </button>
         ))}
+        {s.telemetry?.tool && (
+          <div className="legend-row mono small" aria-label="Tool position">
+            tool: {s.telemetry.tool.position_mm.map((v) => fmt(v, 1)).join(", ")} mm
+          </div>
+        )}
         {Object.keys(pose).length > 0 && (
           <button className="btn btn-small" onClick={() => setPose({})}>
             Clear preview ({Object.keys(pose).length} {Object.keys(pose).length === 1 ? "joint" : "joints"})
