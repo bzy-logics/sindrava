@@ -27,6 +27,14 @@ Robot name and profile, robot state, the active fault and derived alarms, an MCU
 
 ![Joint move panel with targets for all six joints](/screenshots/movej-panel.png)
 
+**Cartesian move** (engine API 0.3 or newer, robots whose geometry is a single serial chain) shows the live tool pose and moves the tool point in a **straight line** to X, Y, Z (mm, robot base frame). Leave roll/pitch/yaw empty to keep the orientation, or fill them to turn the tool on the way (six-joint robots). **Fill current** copies the present pose; the speed is the tool speed along the line. The engine solves the joint motion and refuses lines that are out of reach, need a joint beyond its limits, pass a singularity or would collide; the reason appears as a toast.
+
+![Cartesian move panel: tool pose, target X/Y/Z and orientation, tool speed](/screenshots/cartesian-panel.png)
+
+**Joint path** (engine API 0.3 or newer) teaches a path by example: move the robot to a pose (jog, Joint move or the 3D viewer), press **Add current pose**, repeat, then **Run path**. The robot moves through the waypoints in order **without stopping** at the intermediate ones; corners are rounded. The path starts from wherever the robot is when you run it. Waypoints are kept in the browser tab only.
+
+![Joint path panel with three taught waypoints](/screenshots/path-panel.png)
+
 Jog and the per-axis Move address one joint. Enable, Home and Reset fault ask for confirmation first; see [Safety behaviour](/guide/safety). For what each command does, see [MotionCore: moving axes](https://motioncore.bzy-logics.com/guide/motion).
 
 ## 3D Viewer
@@ -49,6 +57,9 @@ The robot in 3D: measured pose drawn solid, planned (commanded) pose as a transl
   ![Three joints previewed together, with Move 3 joints together](/screenshots/viewer-movej-preview.png)
 
   ![The same move halfway: every joint is the same fraction of the way](/screenshots/viewer-movej-moving.png)
+- **Tool position.** For serial-chain robots the legend shows the tool point (mm), updated live.
+
+  ![A blended joint path running: measured arm, commanded pose and the tool position in the legend](/screenshots/viewer-path.png)
 - **Collision warning.** When the profile gives its links a thickness (`radius`), the engine refuses moves that would make the robot collide with itself or reach the floor once all axes are homed. The viewer runs the same check on the preview: a move that would collide turns the preview **red**, names the links and the joint value where they would meet, and disables **Move**. The engine checks again and has the final word.
 
   ![A wrist preview that would fold into the base: red preview and the collision message](/screenshots/viewer-collision.png)
