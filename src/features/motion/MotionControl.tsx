@@ -108,22 +108,24 @@ export function MotionControl() {
         <Empty>No axes reported yet. Waiting for configuration / telemetry…</Empty>
       ) : (
         <>
+          {/*
+            Feature detection. Capabilities the engine reports in a field are
+            detected by that field: the Cartesian panel shows only when
+            telemetry has a tool pose (MoveL exists then, and only for robots
+            that are a serial chain). Commands that came with a new contract
+            minor and have no field (move_j in 0.2, move_j_path in 0.3) are
+            gated on that minor.
+          */}
           {axes.length > 1 &&
             (apiAtLeast(s.info?.engine?.api_version, 0, 2) ? (
-              <>
-                <MoveJPanel />
-                {apiAtLeast(s.info?.engine?.api_version, 0, 3) && (
-                  <>
-                    <CartesianPanel />
-                    <PathPanel />
-                  </>
-                )}
-              </>
+              <MoveJPanel />
             ) : (
               <div className="note small">
                 Each command moves one axis. Coordinated joint moves need engine API 0.2 or newer, so axes are not synchronised with each other.
               </div>
             ))}
+          <CartesianPanel />
+          {apiAtLeast(s.info?.engine?.api_version, 0, 3) && <PathPanel />}
         <div className="axis-grid">
           {axes.map(({ cfg, tel, id }) => (
             <AxisCard key={id} id={id} cfg={cfg} tel={tel} state={state} online={online && perms.command} />

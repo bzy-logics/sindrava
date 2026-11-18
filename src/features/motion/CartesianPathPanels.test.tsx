@@ -135,17 +135,33 @@ describe("PathPanel", () => {
   });
 });
 
-describe("Motion screen", () => {
-  it("offers Cartesian moves and paths only with engine API 0.3 or newer", () => {
-    setLive(telemetry(Q0), "0.2.0");
+describe("Motion screen feature detection", () => {
+  const panels = () => ({
+    cartesian: screen.queryByRole("region", { name: "Cartesian move" }) !== null,
+    path: screen.queryByRole("region", { name: "Joint path" }) !== null,
+    movej: screen.queryByRole("region", { name: "Coordinated joint move" }) !== null,
+  });
+
+  it("shows the Cartesian panel when telemetry has a tool pose, whatever the version string", () => {
+    // A 0.3 engine driving a robot that is not a serial chain: no tool pose,
+    // so no MoveL; the joint path still works.
+    setLive(telemetry(Q0, { tool: null }), "0.3.0");
     render(<MotionControl />);
-    expect(screen.getByRole("region", { name: "Coordinated joint move" })).toBeTruthy();
-    expect(screen.queryByRole("region", { name: "Cartesian move" })).toBeNull();
-    expect(screen.queryByRole("region", { name: "Joint path" })).toBeNull();
+    expect(panels()).toEqual({ cartesian: false, path: true, movej: true });
+    cleanup();
+    // The tool pose is what counts, even if the version is not known.
+    setLive(telemetry(Q0), "");
+    render(<MotionControl />);
+    expect(panels()).toEqual({ cartesian: true, path: false, movej: false });
+  });
+
+  it("gates commands without a field on the contract minor that added them", () => {
+    setLive(telemetry(Q0, { tool: null }), "0.2.0");
+    render(<MotionControl />);
+    expect(panels()).toEqual({ cartesian: false, path: false, movej: true });
     cleanup();
     setLive(telemetry(Q0), "0.3.0");
     render(<MotionControl />);
-    expect(screen.getByRole("region", { name: "Cartesian move" })).toBeTruthy();
-    expect(screen.getByRole("region", { name: "Joint path" })).toBeTruthy();
+    expect(panels()).toEqual({ cartesian: true, path: true, movej: true });
   });
 });
