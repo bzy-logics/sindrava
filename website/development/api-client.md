@@ -48,6 +48,7 @@ try {
 - **A command response is acceptance, not completion.** Wait for telemetry.
 - **Tolerate unknown enum values.** A newer engine with the same `0.MINOR` may send `"unknown"`, and `"unspecified"` is possible.
 - **Treat nulls as "not set".** Optional fields are always present, as `null` when unset.
+- **Detect features by fields, not versions.** A capability the engine reports in a field is detected by that field: the Cartesian move panel appears only while telemetry carries a `tool` pose (MoveL exists then, and only for serial-chain robots); Home all follows `config.home_all`; collision warnings follow `config.collision_checking`. Commands that arrived with a new engine API minor and have no field are gated on that minor: `move_j` on 0.2, `move_j_path` on 0.3.
 - **Permissions are a hint.** If `/api/session` is unavailable (ratavyr < 0.3), all permissions are treated as unknown/allowed and the server decides.
 
 ## Compatibility with older servers

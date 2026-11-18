@@ -35,9 +35,11 @@ const num = (s: string | undefined): number | null => {
 };
 
 /**
- * Cartesian straight-line move (MoveL, engine-api >= 0.3): the tool point of
- * a serial-chain robot moves in a straight line to X, Y, Z (mm, robot base
- * frame); the orientation is held unless roll/pitch/yaw are given. The engine
+ * Cartesian straight-line move (MoveL): the tool point of a serial-chain robot
+ * moves in a straight line to X, Y, Z (mm, robot base frame); the orientation
+ * is held unless roll/pitch/yaw are given. Shown only while telemetry carries
+ * a tool pose: the engine reports one exactly when MoveL is available
+ * (engine-api >= 0.3 and a serial-chain geometry), so no version check. The engine
  * solves the joint motion, checks reach, joint limits, singularities and
  * collisions, and refuses the move otherwise.
  */
