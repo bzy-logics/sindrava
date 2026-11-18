@@ -23,7 +23,11 @@ Robot name and profile, robot state, the active fault and derived alarms, an MCU
 
 ![Motion: enable, disable and stop, and a card per axis with jog, home and absolute move](/screenshots/motion.png)
 
-Axes are commanded one at a time: the engine has no coordinated multi-axis moves yet. Enable, Home and Reset fault ask for confirmation first; see [Safety behaviour](/guide/safety). For what each command does, see [MotionCore: moving axes](https://motioncore.bzy-logics.com/guide/motion).
+**Joint move** (engine API 0.2 or newer) moves several joints together: type a target for any joints (blank holds the joint; **Fill current** copies the present pose), pick a speed (25, 50 or 100 % of each joint's maximum velocity) and press **Move N joints together**. The engine sends one coordinated move in which every joint starts and finishes at the same time, on a straight line in joint space. The same checks as in the 3D viewer apply (homed joints, soft limits, collision with the engine's model), and the reason is shown before anything is sent.
+
+![Joint move panel with targets for all six joints](/screenshots/movej-panel.png)
+
+Jog and the per-axis Move address one joint. Enable, Home and Reset fault ask for confirmation first; see [Safety behaviour](/guide/safety). For what each command does, see [MotionCore: moving axes](https://motioncore.bzy-logics.com/guide/motion).
 
 ## 3D Viewer
 
@@ -39,7 +43,12 @@ The robot in 3D: measured pose drawn solid, planned (commanded) pose as a transl
 
   ![Motion screen with six joint cards for the same arm](/screenshots/dummy-arm-motion.png)
 
-- **Move from the view.** Click a joint (or its row in the legend) to select it: a yellow ring marks it and a panel opens with jog buttons and a target. Drag the selected joint, or use the slider or number field, to **preview** a target — an amber copy of the robot shows the pose. **Nothing is sent while you drag.** Press **Move** to send one absolute move; the same rules as the Motion screen apply (operator role, live data, robot ready, axis homed, target within the soft limits, which the drag stops at). Esc deselects.
+- **Move from the view.** Click a joint (or its row in the legend) to select it: a yellow ring marks it and a panel opens with jog buttons and a target. Drag the selected joint, or use the slider or number field, to **preview** a target — an amber copy of the robot shows the pose. **Nothing is sent while you drag.** Press **Move** to send it; the same rules as the Motion screen apply (operator role, live data, robot ready, axis homed, target within the soft limits, which the drag stops at). Esc deselects.
+- **Several joints at once.** Previews are kept per joint: select another joint and preview it too, and the amber robot shows the whole pose (the legend lists every previewed target). **Move N joints together** sends one coordinated joint move at the chosen speed, so every joint starts and finishes at the same time; **Clear all** drops the preview. Needs engine API 0.2 or newer.
+
+  ![Three joints previewed together, with Move 3 joints together](/screenshots/viewer-movej-preview.png)
+
+  ![The same move halfway: every joint is the same fraction of the way](/screenshots/viewer-movej-moving.png)
 - **Collision warning.** When the profile gives its links a thickness (`radius`), the engine refuses moves that would make the robot collide with itself or reach the floor once all axes are homed. The viewer runs the same check on the preview: a move that would collide turns the preview **red**, names the links and the joint value where they would meet, and disables **Move**. The engine checks again and has the final word.
 
   ![A wrist preview that would fold into the base: red preview and the collision message](/screenshots/viewer-collision.png)
