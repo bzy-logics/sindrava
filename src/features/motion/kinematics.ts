@@ -126,6 +126,12 @@ export interface Contact {
   gap: number;
   /** Joint values at which it occurs. */
   at: Record<string, number>;
+  /**
+   * No checked pose is below the margin, but the gap between two checked
+   * poses near `at` could not be shown to stay above it; `gap` is the lowest
+   * it could be.
+   */
+  between?: boolean;
 }
 
 /** True when every axis has geometry with a link radius. */
@@ -176,67 +182,131 @@ export function segmentDistance(p1: Vec3, q1: Vec3, p2: Vec3, q2: Vec3): number 
 
 /** Smallest surface gap at joint values `q`, or null without a model. */
 export function clearance(axes: AxisConfig[], q: Record<string, number>): Contact | null {
+  const m = collisionModel(axes);
+  if (!m) return null;
+  const gaps = itemGaps(m, q);
+  let k = -1;
+  gaps.forEach((g, i) => {
+    if (k < 0 || g < gaps[k]!) k = i;
+  });
+  return k < 0 ? { a: "", b: "", gap: Infinity, at: { ...q } } : contact(m, k, gaps[k]!, q, false);
+}
+
+/** Finest resolution of the certified check, mm (as in the engine). */
+const RESOLUTION_MM = 0.01;
+/** How far a gap already below the margin may dip while backing out, mm. */
+const BACK_OUT_MM = 0.1;
+const MAX_CHECKS = 500_000;
+
+interface Model {
+  ids: string[];
+  prismatic: boolean[];
+  radius: number[];
+  /** Local segment ends of each body (non-zero only). */
+  ends: Vec3[][];
+  /** Pairs of bodies, then the floor gap of each body not on the base. */
+  items: ({ pair: [number, number] } | { floor: number })[];
+  /** Joints that can change each item's gap, with the body they move. */
+  movers: [number, number][][];
+  /** reach[x][i]: bound on the distance of body x's points from joint i's axis. */
+  reach: ({ fixed: number; prismatic: number[] } | null)[][];
+  axes: AxisConfig[];
+}
+
+const dot3 = (a: Vec3, b: Vec3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+function axisDistance(v: Vec3, axis: Vec3): number {
+  const n = len3(axis);
+  if (n < 1e-12) return len3(v);
+  const u: Vec3 = [axis[0] / n, axis[1] / n, axis[2] / n];
+  const t = dot3(v, u);
+  return len3([v[0] - u[0] * t, v[1] - u[1] * t, v[2] - u[2] * t]);
+}
+
+function collisionModel(axes: AxisConfig[]): Model | null {
   if (!hasCollisionModel(axes)) return null;
   const tree = kinematicTree(axes);
   if (!tree.ok) return null;
-  const frames = forwardKinematics(axes, q);
-  const ends = new Map<string, Vec3[]>();
-  for (const a of axes) {
+  const order = tree.order;
+  const ids = order.map((a) => a.id);
+  const n = ids.length;
+  const parent = order.map((a) => (a.geometry!.parent === null ? null : ids.indexOf(a.geometry!.parent)));
+  const ends: Vec3[][] = order.map((a) => {
     const own: Vec3[] = (tree.children.get(a.id) ?? []).map((c) => c.geometry!.origin_mm);
     if (a.geometry!.tip_mm) own.push(a.geometry!.tip_mm);
-    ends.set(
-      a.id,
-      own.filter((e) => len3(e) > ZERO),
-    );
-  }
-  const volume = (id: string) => ends.get(id)!.length > 0;
-  const parentOf = new Map(axes.map((a) => [a.id, a.geometry!.parent]));
-  const touching = (x: string, y: string) => {
+    return own.filter((e) => len3(e) > ZERO);
+  });
+  const volume = (i: number) => ends[i]!.length > 0;
+  const chain = (x: number) => {
+    const out = [x];
+    for (let c = parent[x]!; c !== null; c = parent[c]!) out.push(c);
+    return out;
+  };
+  const touching = (x: number, y: number) => {
     for (const [lo, hi] of [
       [x, y],
       [y, x],
     ] as const) {
-      let cur = parentOf.get(hi) ?? null;
       let empty = true;
-      while (cur !== null) {
-        if (cur === lo) return empty;
-        if (volume(cur)) empty = false;
-        cur = parentOf.get(cur) ?? null;
+      for (let c = parent[hi]!; c !== null; c = parent[c]!) {
+        if (c === lo) return empty;
+        if (volume(c)) empty = false;
       }
     }
     return false;
   };
-  const segs = new Map<string, [Vec3, Vec3][]>();
-  for (const a of axes) {
-    const f = frames.get(a.id)!;
+  const prismatic = order.map((a) => a.kind === "prismatic");
+  const reach: Model["reach"] = ids.map(() => ids.map(() => null));
+  for (let x = 0; x < n; x++) {
+    if (!volume(x)) continue;
+    const longest = Math.max(0, ...ends[x]!.map(len3));
+    const up = chain(x);
+    up.forEach((i, depth) => {
+      const g = order[i]!.geometry!;
+      if (prismatic[i]) reach[x]![i] = { fixed: 1, prismatic: [] };
+      else if (i === x) reach[x]![i] = { fixed: Math.max(0, ...ends[x]!.map((e) => axisDistance(e, g.axis))), prismatic: [] };
+      else {
+        const below = up.slice(0, depth).reverse();
+        const first = axisDistance(order[below[0]!]!.geometry!.origin_mm, g.axis);
+        const rest = below.slice(1).reduce((s, k) => s + len3(order[k]!.geometry!.origin_mm), 0);
+        reach[x]![i] = { fixed: first + rest + longest, prismatic: below.filter((k) => prismatic[k]) };
+      }
+    });
+  }
+  const items: Model["items"] = [];
+  for (let a = 0; a < n; a++) for (let b = a + 1; b < n; b++) if (volume(a) && volume(b) && !touching(a, b)) items.push({ pair: [a, b] });
+  for (let x = 0; x < n; x++) if (parent[x] !== null && volume(x)) items.push({ floor: x });
+  const movers = items.map((it) => {
+    if ("floor" in it) return chain(it.floor).map((i): [number, number] => [i, it.floor]);
+    const [a, b] = it.pair;
+    const [ca, cb] = [chain(a), chain(b)];
+    return [...ca.filter((i) => !cb.includes(i)).map((i): [number, number] => [i, a]), ...cb.filter((i) => !ca.includes(i)).map((i): [number, number] => [i, b])];
+  });
+  return { ids, prismatic, radius: order.map((a) => a.geometry!.radius_mm!), ends, items, movers, reach, axes };
+}
+
+function itemGaps(m: Model, q: Record<string, number>): number[] {
+  const frames = forwardKinematics(m.axes, q);
+  const segs = m.ids.map((id, i) => {
+    const f = frames.get(id)!;
     const o = position(f);
-    segs.set(
-      a.id,
-      ends.get(a.id)!.map((e) => [o, position(mul(f, translate(e)))]),
-    );
-  }
-  const r = (id: string) => axes.find((a) => a.id === id)!.geometry!.radius_mm!;
-  let worst: Contact = { a: "", b: "", gap: Infinity, at: { ...q } };
-  const ids = axes.map((a) => a.id);
-  for (let i = 0; i < ids.length; i++) {
-    for (let j = i + 1; j < ids.length; j++) {
-      const [x, y] = [ids[i]!, ids[j]!];
-      if (!volume(x) || !volume(y) || touching(x, y)) continue;
-      for (const [p1, q1] of segs.get(x)!)
-        for (const [p2, q2] of segs.get(y)!) {
-          const gap = segmentDistance(p1, q1, p2, q2) - r(x) - r(y);
-          if (gap < worst.gap) worst = { a: x, b: y, gap, at: { ...q } };
-        }
+    return m.ends[i]!.map((e): [Vec3, Vec3] => [o, position(mul(f, translate(e)))]);
+  });
+  return m.items.map((it) => {
+    let gap = Infinity;
+    if ("floor" in it) {
+      for (const [p, e] of segs[it.floor]!) gap = Math.min(gap, Math.min(p[2], e[2]) - m.radius[it.floor]!);
+    } else {
+      const [a, b] = it.pair;
+      for (const [p1, q1] of segs[a]!) for (const [p2, q2] of segs[b]!) gap = Math.min(gap, segmentDistance(p1, q1, p2, q2) - m.radius[a]! - m.radius[b]!);
     }
-  }
-  for (const a of axes) {
-    if (a.geometry!.parent === null) continue; // stands on the base
-    for (const [p, e] of segs.get(a.id)!) {
-      const gap = Math.min(p[2], e[2]) - r(a.id);
-      if (gap < worst.gap) worst = { a: a.id, b: "floor", gap, at: { ...q } };
-    }
-  }
-  return worst;
+    return gap;
+  });
+}
+
+function contact(m: Model, k: number, gap: number, at: Record<string, number>, between: boolean): Contact {
+  const it = m.items[k]!;
+  const [a, b] = "floor" in it ? [m.ids[it.floor]!, "floor"] : [m.ids[it.pair[0]]!, m.ids[it.pair[1]]!];
+  return between ? { a, b, gap, at: { ...at }, between } : { a, b, gap, at: { ...at } };
 }
 
 /**
@@ -248,26 +318,80 @@ export function checkSweep(axes: AxisConfig[], q: Record<string, number>, id: st
 }
 
 /**
- * First pose with less than the margin on the straight joint-space line from
- * `q` to `q` with `targets` applied (the path of a MoveJ: every listed joint
- * moves at once, the others hold), or null when the path is clear. Checked
- * every 0.5° / 1 mm of the joint that moves furthest. Moves that never get
- * worse than the start are allowed, as in the engine.
+ * Certified check of the straight joint-space line from `q` to `q` with
+ * `targets` applied (the path of a MoveJ: every listed joint moves at once,
+ * the others hold); null when the margin holds along the whole line, not
+ * only at the checked poses. Same algorithm as the engine: each joint can
+ * move a point of a link no faster than its distance from the joint's axis
+ * allows, so from each checked pose the check steps only as far as the
+ * remaining clearance above the margin allows (at most 0.5° / 1 mm of the
+ * joint that moves furthest). A gap already below the margin may back out:
+ * it may not dip more than 0.1 mm below its start, nor end smaller.
  */
 export function checkPath(axes: AxisConfig[], q: Record<string, number>, targets: Record<string, number>): Contact | null {
-  const start = clearance(axes, q);
-  if (!start) return null;
-  const ids = Object.keys(targets);
-  const from = Object.fromEntries(ids.map((id) => [id, q[id] ?? 0]));
-  const n = Math.min(
-    10_000,
-    Math.max(1, Math.ceil(Math.max(0, ...ids.map((id) => Math.abs(targets[id]! - from[id]!) / (axes.find((a) => a.id === id)?.kind === "prismatic" ? 1 : 0.5))))),
+  const m = collisionModel(axes);
+  if (!m) return null;
+  const nj = m.ids.length;
+  const from = m.ids.map((id) => q[id] ?? 0);
+  const dq = m.ids.map((id, i) => (id in targets ? targets[id]! : from[i]!) - from[i]!);
+  const travel = from.map((f, i) => Math.max(Math.abs(f), Math.abs(f + dq[i]!)));
+  const lip = m.movers.map((mv) =>
+    mv.reduce((s, [i, x]) => {
+      const r = m.reach[x]![i]!;
+      const d = r.fixed + r.prismatic.reduce((t, k) => t + travel[k]!, 0);
+      return s + (m.prismatic[i] ? d : d * DEG) * Math.abs(dq[i]!);
+    }, 0),
   );
-  for (let k = 1; k <= n; k++) {
-    const pose = { ...q };
-    for (const id of ids) pose[id] = from[id]! + ((targets[id]! - from[id]!) * k) / n;
-    const c = clearance(axes, pose)!;
-    if (c.gap < COLLISION_MARGIN_MM && c.gap < start.gap - 1e-6) return c;
+  const n = Math.min(10_000, Math.max(1, Math.ceil(Math.max(0, ...dq.map((d, i) => Math.abs(d) / (m.prismatic[i] ? 1 : 0.5))))));
+  const dsMax = 1 / n;
+  const lipMax = Math.max(0, ...lip);
+  const dsMin = lipMax > 0 ? Math.min(dsMax, RESOLUTION_MM / lipMax) : dsMax;
+  const pose = (s: number) => {
+    const out = { ...q };
+    for (let i = 0; i < nj; i++) out[m.ids[i]!] = from[i]! + dq[i]! * s;
+    return out;
+  };
+  const start = itemGaps(m, pose(0));
+  const floor = start.map((e) => (e >= COLLISION_MARGIN_MM ? COLLISION_MARGIN_MM : e - BACK_OUT_MM));
+  const below = (e: number[]) => e.findIndex((g, k) => g < floor[k]!);
+  let e0 = start;
+  let s = 0;
+  let checks = 1;
+  let minGap = Infinity;
+  while (s < 1) {
+    let ds = dsMax;
+    lip.forEach((l, k) => {
+      if (l > 0) ds = Math.min(ds, (e0[k]! - floor[k]!) / l);
+    });
+    ds = Math.max(ds, dsMin);
+    const s1 = ds >= 1 - s - 1e-12 ? 1 : s + ds;
+    ds = s1 - s;
+    const q1 = pose(s1);
+    const e1 = itemGaps(m, q1);
+    checks++;
+    const hit = below(e1);
+    if (hit >= 0) return contact(m, hit, e1[hit]!, q1, false);
+    for (let k = 0; k < e1.length; k++) {
+      const low = Math.min((e0[k]! + e1[k]! - lip[k]! * ds) / 2, e0[k]!, e1[k]!);
+      if (low < floor[k]!) {
+        // Refused. Report a contact further on, if there is one.
+        for (let t = s1; t < 1; ) {
+          t = Math.min(1, t + dsMax);
+          const e = itemGaps(m, pose(t));
+          const j = below(e);
+          if (j >= 0) return contact(m, j, e[j]!, pose(t), false);
+        }
+        return contact(m, k, low, pose(s + ds / 2), true);
+      }
+      minGap = Math.min(minGap, low);
+    }
+    if (checks >= MAX_CHECKS) {
+      const k = e1.reduce((best, g, i) => (g < e1[best]! ? i : best), 0);
+      return contact(m, k, minGap, q1, true);
+    }
+    s = s1;
+    e0 = e1;
   }
-  return null;
+  const worse = e0.findIndex((e, k) => start[k]! < COLLISION_MARGIN_MM && e < start[k]! - 1e-9);
+  return worse >= 0 ? contact(m, worse, e0[worse]!, pose(1), false) : null;
 }

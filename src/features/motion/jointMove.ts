@@ -33,7 +33,11 @@ export function describeContact(c: Contact, targets: JointTargets, cfgs: AxisCon
     ids.length === 1
       ? `when ${ids[0]} reaches ${fmt(c.at[ids[0]!], 1)} ${unit(ids[0]!)}`
       : `at ${ids.map((id) => `${id} ${fmt(c.at[id], 1)}`).join(", ")}`;
-  const what = c.b === "floor" ? `Would hit the floor (link of ${c.a})` : `Would collide: links of ${c.a} and ${c.b}`;
+  const what = c.between
+    ? `Could come within ${fmt(c.gap, 1)} mm: ${c.b === "floor" ? `link of ${c.a} and the floor` : `links of ${c.a} and ${c.b}`}`
+    : c.b === "floor"
+      ? `Would hit the floor (link of ${c.a})`
+      : `Would collide: links of ${c.a} and ${c.b}`;
   return `${what} ${where}; the engine refuses this move.`;
 }
 
