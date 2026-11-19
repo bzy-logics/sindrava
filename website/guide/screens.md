@@ -60,7 +60,7 @@ The robot in 3D: measured pose drawn solid, planned (commanded) pose as a transl
 - **Tool position.** For serial-chain robots the legend shows the tool point (mm), updated live.
 
   ![A blended joint path running: measured arm, commanded pose and the tool position in the legend](/screenshots/viewer-path.png)
-- **Collision warning.** When the profile gives its links a thickness (`radius`), the engine refuses moves that would make the robot collide with itself or reach the floor once all axes are homed. The viewer runs the same check on the preview: a move that would collide turns the preview **red**, names the links and the joint value where they would meet, and disables **Move**. The engine checks again and has the final word.
+- **Collision warning.** When the profile gives its links a thickness (`radius`), the engine refuses moves that would make the robot collide with itself or reach the floor once all axes are homed. The viewer runs the same check on the preview: a move that would collide turns the preview **red**, names the links and the joint value where they would meet, and disables **Move**. Like the engine, the check holds the 2 mm margin along the whole path, not only at the poses it samples. The engine checks again and has the final word.
 
   ![A wrist preview that would fold into the base: red preview and the collision message](/screenshots/viewer-collision.png)
 

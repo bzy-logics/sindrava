@@ -235,4 +235,53 @@ describe("collision model (same as the engine)", () => {
     expect([c.a, c.b]).toEqual(["j1", "j6"]);
     expect(checkPath(arm(), q(0, 0, 0, 0, 0, 0), { j1: 35, j3: 90, j4: 30, j5: -50, j6: 90 })).toBeNull();
   });
+
+  it("backs out only if it does not end closer than it started", () => {
+    const into = q(0, -73, 180, 0, 25, 0);
+    const c = checkSweep(arm(), into, "j5", 25.05)!;
+    expect(c).not.toBeNull();
+    expect(c.between).toBeUndefined();
+    expect(c.gap).toBeLessThan(clearance(arm(), into)!.gap);
+  });
+
+  // A post at the origin and a 1977.5 mm arm pivoting at x = -2000 whose tip
+  // passes `pass` mm from the post at 0°: a 0.5° step moves the tip 17 mm.
+  const swing = (pass: number): AxisConfig[] => [
+    axis("post", "revolute", { tip_mm: [0, 0, 500], radius_mm: 10 }),
+    axis("arm", "revolute", { origin_mm: [-2000, 0, 250], tip_mm: [1980 - pass, 0, 0], radius_mm: 10 }),
+  ];
+
+  it("finds a contact between the poses a fixed 0.5° grid would check (as the engine does)", () => {
+    for (let k = 0; k <= 40; k++) expect(clearance(swing(0.5), { post: 0, arm: -10.25 + 0.5 * k })!.gap).toBeGreaterThan(COLLISION_MARGIN_MM);
+    expect(clearance(swing(0.5), { post: 0, arm: 0 })!.gap).toBeCloseTo(0.5, 9);
+    const c = checkPath(swing(0.5), { post: 0, arm: -10.25 }, { arm: 9.75 })!;
+    expect(c.gap).toBeLessThan(COLLISION_MARGIN_MM);
+    expect(Math.abs(c.at.arm!)).toBeLessThan(0.25);
+    expect(checkPath(swing(3), { post: 0, arm: -10.25 }, { arm: 9.75 })).toBeNull();
+  });
+
+  it("accepted paths keep the margin at densely resampled poses", () => {
+    let seed = 7;
+    const rnd = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648);
+    const lim: [number, number][] = [[-170, 170], [-73, 90], [35, 180], [-180, 180], [-120, 120], [-720, 720]];
+    let accepted = 0;
+    for (let n = 0; n < 40; n++) {
+      const from = q(...lim.map(([lo, hi]) => lo + (hi - lo) * rnd()));
+      if (clearance(arm(), from)!.gap < COLLISION_MARGIN_MM) continue;
+      const targets: Record<string, number> = {};
+      lim.forEach(([lo, hi], i) => {
+        if (rnd() < 0.5) targets[`j${i + 1}`] = Math.min(hi, Math.max(lo, from[`j${i + 1}`]! + 60 * (rnd() - 0.5)));
+      });
+      if (checkPath(arm(), from, targets)) continue;
+      accepted++;
+      const ids = Object.keys(targets);
+      const steps = Math.max(1, Math.ceil(Math.max(0, ...ids.map((id) => Math.abs(targets[id]! - from[id]!) / 0.01))));
+      for (let k = 0; k <= steps; k += 1) {
+        const pose = { ...from };
+        for (const id of ids) pose[id] = from[id]! + ((targets[id]! - from[id]!) * k) / steps;
+        expect(clearance(arm(), pose)!.gap).toBeGreaterThanOrEqual(COLLISION_MARGIN_MM - 1e-9);
+      }
+    }
+    expect(accepted).toBeGreaterThan(5);
+  });
 });
