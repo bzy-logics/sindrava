@@ -357,6 +357,7 @@ export function checkPath(axes: AxisConfig[], q: Record<string, number>, targets
   let e0 = start;
   let s = 0;
   let checks = 1;
+  let minGap = Infinity;
   while (s < 1) {
     let ds = dsMax;
     lip.forEach((l, k) => {
@@ -372,7 +373,7 @@ export function checkPath(axes: AxisConfig[], q: Record<string, number>, targets
     if (hit >= 0) return contact(m, hit, e1[hit]!, q1, false);
     for (let k = 0; k < e1.length; k++) {
       const low = Math.min((e0[k]! + e1[k]! - lip[k]! * ds) / 2, e0[k]!, e1[k]!);
-      if (low < floor[k]! || checks >= MAX_CHECKS) {
+      if (low < floor[k]!) {
         // Refused. Report a contact further on, if there is one.
         for (let t = s1; t < 1; ) {
           t = Math.min(1, t + dsMax);
@@ -382,6 +383,11 @@ export function checkPath(axes: AxisConfig[], q: Record<string, number>, targets
         }
         return contact(m, k, low, pose(s + ds / 2), true);
       }
+      minGap = Math.min(minGap, low);
+    }
+    if (checks >= MAX_CHECKS) {
+      const k = e1.reduce((best, g, i) => (g < e1[best]! ? i : best), 0);
+      return contact(m, k, minGap, q1, true);
     }
     s = s1;
     e0 = e1;
